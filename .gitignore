@@ -1,0 +1,12 @@
+ebin/*
+deps/*
+*.swp
+*.dump
+*.trace  
+.eunit
+.emark
+.test
+.~*
+*.un~
+fprof.trace
+doc

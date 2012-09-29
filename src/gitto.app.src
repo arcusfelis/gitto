@@ -1,0 +1,8 @@
+%% -*- erlang -*-
+{application, gitto,
+ [{description, "Git utilities for Erlang"},
+  {vsn, git},
+  {modules, []},
+  {registered, []},
+  {env, []},
+  {applications, [kernel, stdlib]}]}.
