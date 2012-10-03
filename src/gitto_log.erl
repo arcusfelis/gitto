@@ -1,6 +1,21 @@
 -module(gitto_log).
--export([parse_commits/1]).
+-export([format/0, parse_commits/1]).
 
+
+format() ->
+    "%H%n"      %% commit hash
+    "%P%n"      %% parent hashes
+
+    "%an%n"     %% author name
+    "%ae%n"     %% author email
+    "%at%n"     %% author date, UNIX timestamp
+
+    "%cn%n"     %% committer name
+    "%ce%n"     %% committer email
+    "%ct%n"     %% committer date, UNIX timestamp
+
+    "%s%n%n%n"  %% subject
+    "%B%n%n%n". %% raw body (unwrapped subject and body)
 
 
 parse_commits(Str) ->
@@ -9,40 +24,43 @@ parse_commits(Str) ->
 
 
 parse_commit_lines([<<>> | Lines], Acc) ->
-    %% Skip an empty string between two records.
     parse_commit_lines(Lines, Acc);
 
-parse_commit_lines([HashLine, AuthorLine, DateLine, <<>> | Lines], Acc) ->
-    <<"commit ", Hash/binary>> = HashLine,
-    <<"Author: ", Author/binary>> = AuthorLine,
-    <<"Date:   ", Date/binary>> = DateLine,
-    {Body, Lines2} = parse_body(Lines, []),
-    Header = body_to_header(Body),
-    {DateTimeStamp, _DateTimeZone} = parse_date(Date),
-    %% El is an ordset.
-    El = [ {author, Author} 
-         , {body, join_lines(Body)}
-         , {commit, Hash}
-         , {date_timestamp, DateTimeStamp}
-         , {header, join_lines(Header)}],
-    parse_commit_lines(Lines2, [El | Acc]);
+parse_commit_lines([CommitHash, ParentHashes, 
+                    AuthorName, AuthorEmail, AuthorTime,
+                    CommitterName, CommitterEmail, CommitterTime | Lines], Acc) ->
+    {Subject, Lines2} = parse_body(Lines, []),
+    {Body,    Lines3} = parse_body(Lines2, []),
+    %% El is proplist.
+    El = [ {commit_hash, CommitHash} 
+         , {parent_hashes, split_hashes(ParentHashes)}
+
+         , {author_name,    AuthorName}
+         , {author_email,   AuthorEmail}
+         , {author_date,    format_timestamp(AuthorTime)}
+
+         , {committer_name,     CommitterName}
+         , {committer_email,    CommitterEmail}
+         , {committer_date,     format_timestamp(CommitterTime)}
+
+         , {subject, join_lines(Subject)}
+         , {body,    join_lines(Body)}
+         ],
+    parse_commit_lines(Lines3, [El | Acc]);
 
 parse_commit_lines([], Acc) ->
     lists:reverse(Acc).
 
 
-parse_body([<<"    ", Mess/binary>> | Lines], Acc) ->
-    io:format("Message string was parsed: ~ts~n", [Mess]),
-    parse_body(Lines, [Mess|Acc]);
+parse_body([<<>>, <<>> | Lines], Acc) ->
+    {lists:reverse(Acc), Lines};
 
-parse_body(Lines, Acc) ->
-    {lists:reverse(Acc), Lines}.
-
-
-body_to_header(Lines) ->
-    lists:takewhile(fun(X) -> X =/= <<>> end, Lines).
+parse_body([Line|Lines], Acc) ->
+    parse_body(Lines, [Line|Acc]).
     
 
+split_hashes(Str) ->
+    binary:split(Str, <<" ">>, [global]).
 
 lines(Str) ->
     binary:split(Str, line_terminator(), [global]).
@@ -56,55 +74,71 @@ line_terminator() ->
     iolist_to_binary(io_lib:format("~n", [])).
 
 
--spec parse_date(Date) -> {TimeStamp, TimeZone} when
-    Date :: binary(),
-    TimeStamp :: integer(),
-    TimeZone :: binary().
-
-parse_date(Bin) ->
-    [TS, TZ] = binary:split(Bin, <<" ">>),
-    {list_to_integer(binary_to_list(TS)), TZ}.
-    
-
+format_timestamp(X) ->
+    list_to_integer(binary_to_list(X)).
 
 -ifdef(TEST).                           
 -include_lib("eunit/include/eunit.hrl").
 
 parse_commits_test_() ->                                     
 Src = 
-% git log --pretty=medium  --date=raw
-<<"commit 08d2879b56b604b41e3d40fe4fa721465bcb36e5
-Author: Uvarov Michael <freeakk@gmail.com>
-Date:   1348992863 +0400
+<<"650c7db44349a18eb0794af33cc30837c0d1c536
+0b2417bae993f7ba51595e71d83dbd2e1c911484
+Uvarov Michael
+freeakk@gmail.com
+1349067700
+Uvarov Michael
+freeakk@gmail.com
+1349067700
+Add other files.
 
-    Header
-    Mess1
-    Mess2
 
-commit 97cc7209ee81a660eb71bd112d9c19776a88b900
-Author: Uvarov Michael <freeakk@gmail.com>
-Date:   1348986807 +0400
+Add other files.
 
-    Header
-    
-    Mess1
-    Mess2
-    
-    Mess3">>,
+
+
+
+0b2417bae993f7ba51595e71d83dbd2e1c911484
+
+Uvarov Michael
+freeakk@gmail.com
+1348931051
+Uvarov Michael
+freeakk@gmail.com
+1348931051
+First commit.
+
+
+First commit.
+
+
+
+
+">>,
 
     Rec1 = 
-    [ {author, <<"Uvarov Michael <freeakk@gmail.com>">>}
-    , {body, <<"Header\r\nMess1\r\nMess2">>}
-    , {commit, <<"08d2879b56b604b41e3d40fe4fa721465bcb36e5">>}
-    , {date_timestamp, 1348992863}
-    , {header, <<"Header\r\nMess1\r\nMess2">>}],
+    [{commit_hash,<<"650c7db44349a18eb0794af33cc30837c0d1c536">>}
+    ,{parent_hashes,[<<"0b2417bae993f7ba51595e71d83dbd2e1c911484">>]}
+    ,{author_name,<<"Uvarov Michael">>}
+    ,{author_email,<<"freeakk@gmail.com">>}
+    ,{author_date,1349067700}
+    ,{committer_name,<<"Uvarov Michael">>}
+    ,{committer_email,<<"freeakk@gmail.com">>}
+    ,{committer_date,1349067700}
+    ,{subject,<<"Add other files.">>}
+    ,{body,<<"Add other files.">>}],
 
     Rec2 = 
-    [ {author, <<"Uvarov Michael <freeakk@gmail.com>">>}
-    , {body, <<"Header\r\n\r\nMess1\r\nMess2\r\n\r\nMess3">>}
-    , {commit, <<"97cc7209ee81a660eb71bd112d9c19776a88b900">>}
-    , {date_timestamp, 1348986807}
-    , {header, <<"Header">>}],
+    [{commit_hash,<<"0b2417bae993f7ba51595e71d83dbd2e1c911484">>}
+    ,{parent_hashes,[<<>>]}
+    ,{author_name,<<"Uvarov Michael">>}
+    ,{author_email,<<"freeakk@gmail.com">>}
+    ,{author_date,1348931051}
+    ,{committer_name,<<"Uvarov Michael">>}
+    ,{committer_email,<<"freeakk@gmail.com">>}
+    ,{committer_date,1348931051}
+    ,{subject,<<"First commit.">>}
+    ,{body,<<"First commit.">>}],
 
     ExpectedResult = [Rec1, Rec2],
     Result = ?MODULE:parse_commits(Src),

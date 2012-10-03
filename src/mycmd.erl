@@ -17,17 +17,27 @@ cmd(Cmd, Args, Opts) ->
 
 cmd_sync(Cmd, Args, Opts) ->
     P = open_port({spawn_executable, os:find_executable(Cmd)}, 
-           Opts ++ [binary, use_stdio, stream, eof, {args, Args}, exit_status]),
-    cmd_receive(P, []).
+           Opts ++ [binary, use_stdio, stream, eof, {args, Args}, exit_status, 
+                    stderr_to_stdout]),
+    cmd_receive(P, [], 0).
 
-cmd_receive(Port, Acc) ->
+cmd_receive(Port, Acc, OldExitStatus) ->
     receive
         {Port, {data, Data}} -> 
-            cmd_receive(Port, [Data|Acc]);
+            cmd_receive(Port, [Data|Acc], OldExitStatus);
         {Port,{exit_status,Status}} -> 
             error_logger:info_msg("Exit status ~p of the ~p port.", 
                                   [Status, Port]),
-            cmd_receive(Port, Acc);
+            cmd_receive(Port, Acc, Status);
         {Port, eof} -> 
-            {ok, lists:reverse(Acc)}
+            Data = lists:reverse(Acc),
+            case OldExitStatus of
+                0 -> {ok, Data};
+                _ -> {error, {bad_exit_status, [{exit_status, OldExitStatus}
+                                               ,{data, Data}]}}
+            end;
+        Wtf ->
+            error_logger:info_msg("Wtf recieved: ~p.", 
+                                  [Wtf])
+
     end.
