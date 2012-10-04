@@ -8,72 +8,7 @@
 
         , select/1]).
 
-
-
-%% -----------------------------------------------------------------------
-%% Type Definitions
-%% -----------------------------------------------------------------------
-
--type person_id()     :: non_neg_integer().
--type revision_id()   :: non_neg_integer().
--type project_id()    :: non_neg_integer().
--type address_id()    :: non_neg_integer().
--type repository_id() :: non_neg_integer().
-
--type timestamp() :: integer().
-
-
-%% The binary of length 40.
--type hash()      :: binary().
-
-
-%% -----------------------------------------------------------------------
-%% Record Definitions
-%% -----------------------------------------------------------------------
-
--record(g_project, {
-        id :: project_id(),
-        name :: unicode:unicode_binary()
-}).
-
--record(g_repository, {
-        id :: repository_id(),
-        project :: project_id()
-}).
-
--record(g_address, {
-    id :: address_id(),
-    repository :: repository_id(),
-    url,
-
-    is_dead :: boolean() | undefined,
-    last_try_date :: timestamp() | undefined,
-    last_successful_connection_date :: timestamp() | undefined
-}).
-
--record(g_person, {
-        id      :: person_id(),
-        name    :: unicode:unicode_binary(),
-        email   :: binary()
-}).
-
--record(g_revision, {
-        id              :: revision_id(),
-        repository      :: repository_id(),
-        %% Is the first on the right on the "git log --graph?"
-        is_first_parent :: boolean(),
-        author          :: person_id(),
-        committer       :: person_id(),
-        author_date     :: timestamp(),
-        committer_date  :: timestamp(),
-
-        commit_hash     :: hash(),
-        subject         :: unicode:unicode_binary(),
-        body            :: unicode:unicode_binary(),
-
-        parents   = []  :: [revision_id()],
-        dependencies = [] :: [repository_id()]
-}).
+-include_lib("gitto/src/gitto.hrl").
 
 
 %% -----------------------------------------------------------------------
@@ -108,6 +43,8 @@ up() ->
         [ {type, ordered_set}, {disc_copies, [node()] },
              {attributes,
                 record_info(fields, g_revision)} ]),
+
+    mnesia:wait_for_tables([g_project, g_repository, g_address, g_person, g_revision], 3000),
 
     ok.
 

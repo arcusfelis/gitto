@@ -42,10 +42,6 @@ read_file(RepDir, Revision, FileName) ->
     iolist_to_binary(Data).
     
 
-config() ->
-    [{bare_reps_dir, filename:join(code:priv_dir(gitto), bare_reps)}
-    ,{rev_reps_dir,  filename:join(code:priv_dir(gitto), rev_reps)}].
-
 
 cmd(Cmd, Args, Opts) ->
     case mycmd:cmd(Cmd, Args, Opts) of
