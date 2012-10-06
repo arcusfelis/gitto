@@ -11,3 +11,4 @@ deps/*
 fprof.trace
 doc
 Mnesia.*
+data

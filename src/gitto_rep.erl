@@ -1,11 +1,36 @@
+%%% @doc Bindings for the console git command.
+%%% Low-level operations.
+%%% This module know nothing about the database.
 -module(gitto_rep).
 -compile(export_all).
 
+
+init(RepDir) ->
+    mycmd:cmd("git", ["init"],  [{cd, RepDir}]).
+
+add_all(RepDir) ->
+    mycmd:cmd("git", ["add", "."],  [{cd, RepDir}]).
+
+commit(RepDir, Comment) ->
+    mycmd:cmd("git", ["commit", "-m", Comment],  [{cd, RepDir}]).
+
+tag(RepDir, Comment) ->
+    mycmd:cmd("git", ["tag", Comment],  [{cd, RepDir}]).
+
+merge(RepDir, Version) ->
+    mycmd:cmd("git", ["merge", Version],  [{cd, RepDir}]).
+
 %% Clone from `RepURL' to `RepURL'.
 %% git clone --bare
-clone(RepURL, RepPath) ->
-    mycmd:cmd("git", ["clone", "--bare", RepURL, RepPath]).
+bare_clone(RepURL, RepDir) ->
+    mycmd:cmd("git", ["clone", "--bare", RepURL, RepDir]).
 
+clone(RepURL, RepDir) ->
+    mycmd:cmd("git", ["clone", RepURL, RepDir]).
+
+%% @doc Pull from `RepURL' to `RepDir'.
+pull(RepURL, RepDir) ->
+    mycmd:cmd("git", ["pull", RepURL],  [{cd, RepDir}]).
 
 %% git clone --shared
 checkout(BareRepDir, TargetRepDir, Revision) -> 
@@ -145,7 +170,7 @@ read_file_from_wrong_revision_test() ->
 whenchanged_test() ->
     RepDir = code:lib_dir(gitto),
     %% Newest version is last.
-    Versions = lists:reverse(rebar_versions(RepDir, ["--first-parent"])),
+    Versions = lists:reverse(rebar_versions(RepDir, ["--first-parent", "-m"])),
     io:format(user, "~nwhenchanged: ~p~n", [dependency_durations(Versions)]).
 
 

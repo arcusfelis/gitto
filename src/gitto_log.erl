@@ -1,3 +1,4 @@
+%% @doc Pure parser tools.
 -module(gitto_log).
 -export([format/0, parse_commits/1]).
 
@@ -18,6 +19,8 @@ format() ->
     "%B%n%n%n". %% raw body (unwrapped subject and body)
 
 
+%% @doc Extract commit PLs from the log binary.
+%% Last element of the returned list is the oldest.
 parse_commits(Str) ->
     Lines = lines(Str),
     parse_commit_lines(Lines, []).
@@ -60,7 +63,7 @@ parse_body([Line|Lines], Acc) ->
     
 
 split_hashes(Str) ->
-    binary:split(Str, <<" ">>, [global]).
+    [X || X <- binary:split(Str, <<" ">>, [global]), X =/= <<>>].
 
 lines(Str) ->
     binary:split(Str, line_terminator(), [global]).
@@ -130,7 +133,7 @@ First commit.
 
     Rec2 = 
     [{commit_hash,<<"0b2417bae993f7ba51595e71d83dbd2e1c911484">>}
-    ,{parent_hashes,[<<>>]}
+    ,{parent_hashes,[]}
     ,{author_name,<<"Uvarov Michael">>}
     ,{author_email,<<"freeakk@gmail.com">>}
     ,{author_date,1348931051}
