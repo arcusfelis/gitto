@@ -6,7 +6,8 @@
         , record_to_id/1
         , match_object/1
 
-        , select/1]).
+        , select/1
+        , select1/1]).
 
 -include_lib("gitto/src/gitto.hrl").
 
@@ -50,16 +51,17 @@ up() ->
         ,{index, [commit_hash]}
         ]),
 
-    mnesia:create_table(g_dependence,
+    mnesia:create_table(g_dependency,
         [{type, ordered_set}
         ,{disc_copies, [node()]}
-        ,{attributes, record_info(fields, g_dependence)}
+        ,{attributes, record_info(fields, g_dependency)}
         ]),
 
-    mnesia:create_table(g_first_parent,
+    mnesia:create_table(g_repository_x_revision,
         [{type, ordered_set}
         ,{disc_copies, [node()]}
-        ,{attributes, record_info(fields, g_first_parent)}
+        ,{attributes, record_info(fields, g_repository_x_revision)}
+        ,{index, [revision]}
         ]),
 
     mnesia:create_table(g_tag,
@@ -67,6 +69,12 @@ up() ->
         ,{disc_copies, [node()]}
         ,{attributes, record_info(fields, g_tag)}
         ,{index, [name]}
+        ]),
+
+    mnesia:create_table(g_revision_date_index,
+        [{type, ordered_set}
+        ,{disc_copies, [node()]}
+        ,{attributes, record_info(fields, g_revision_date_index)}
         ]),
 
     mnesia:wait_for_tables(tables(), 3000),
@@ -81,7 +89,8 @@ down() ->
 
 tables() ->
     [g_project, g_repository, g_address, g_person, 
-     g_revision, g_dependence, g_first_parent, g_tag].
+     g_revision, g_dependency, g_first_parent, g_tag, g_repository_x_revision,
+     g_revision_date_index].
 
 
 
@@ -170,6 +179,13 @@ select(Q)->
             F = fun(QH)-> qlc:e(QH) end,
             mnesia:activity(transaction,F,[Q],mnesia_frag);
         true -> qlc:e(Q)
+    end.
+
+
+select1(Q) ->
+    case select(Q) of
+        []  -> undefined;
+        [X] -> X
     end.
 
 

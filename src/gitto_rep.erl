@@ -97,50 +97,6 @@ rebar_config_versions(RepDir, Flags) ->
 
 
 
--record(dep, {from, to, value}).
-
-%% @doc This function gets a set of commits only from one chain of commits.
-%% It means, that you usually want to use it with: `git log --first-parent'.
-dependency_durations(Deps) ->
-    dependency_durations(Deps, [], [], []).
-
-dependency_durations([{RevNum, NewDeps}|T], OldDeps, From, To) ->
-    {Deleted, _Same, Added} = update_dependencies(OldDeps, NewDeps),
-    From2 = merge(RevNum, Added, From),
-    To2   = merge(RevNum, Deleted, To),
-    dependency_durations(T, NewDeps, From2, To2);
-
-dependency_durations([], OldDeps, From, To) ->
-    To2   = merge(latest, OldDeps, To),
-    To3   = lists:keysort(2, To2),
-    From2 = lists:keysort(2, From),
-    Z = fun({F, Deps}, {T, Deps}) -> 
-            #dep{from = F, to = T, value = Deps} 
-        end,
-    lists:zipwith(Z, From2, To3).
-    
-
-merge(RevNum, [H|T], Acc) ->
-    merge(RevNum, T, [{RevNum, H} | Acc]);
-
-merge(_RevNum, [], Acc) ->
-    Acc.
-
-
--spec update_dependencies(OldDeps, NewDeps) -> {Deleted, Same, Added} when
-    OldDeps :: Deps,
-    NewDeps :: Deps,
-    Deleted :: Deps,
-    Same    :: Deps,
-    Added   :: Deps,
-    Deps    :: [term()].
-
-update_dependencies(OldDeps, NewDeps) ->
-    Deleted = OldDeps -- NewDeps,
-    Same    = OldDeps -- Deleted,
-    Added   = NewDeps -- OldDeps,
-    {Deleted, Same, Added}.
-
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
@@ -172,15 +128,8 @@ whenchanged_test() ->
     %% Newest version is last.
     %% Merges are included.
     Versions = lists:reverse(rebar_config_versions(RepDir, ["--first-parent", "-m"])),
-    io:format(user, "~nwhenchanged: ~p~n", [dependency_durations(Versions)]).
+    io:format(user, "~nwhenchanged: ~p~n", [Versions]).
 
-
-update_dependencies_test_() ->
-    [?_assertEqual(update_dependencies([1,2,3], [2,3,4]),
-                   {[1], [2,3], [4]})
-    ,?_assertEqual(update_dependencies([1,2,3], [4,5,6]),
-                   {[1,2,3], [], [4,5,6]})
-    ].
 
 -endif.
 

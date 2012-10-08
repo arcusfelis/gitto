@@ -24,9 +24,15 @@
 -export([improper_revision/1,
          improper_revision/2]).
 
+-export([dependency/2]).
+
+-export([revision_date_index/2,
+         repository_x_revision/3]).
 
 to_id(Rec) ->
     erlang:element(2, Rec).
+
+
 
 %% ------------------------------------------------------------------
 %% Repository
@@ -56,14 +62,28 @@ repository(PL, Rec) ->
 set_repository_field(K, V, A) ->
     A#g_repository{K = V}.
 
+create_repository(ProjectId) ->
+    gitto_db:write(#g_repository{project = ProjectId}).
+
 
 %% ------------------------------------------------------------------
 %% Address
 %% ------------------------------------------------------------------
 
+
+%% @doc Lookup or create.
 address_to_url(#g_address{url = Url}) ->
     Url.
 
+lookup_address(Url) ->
+    Q = qlc:q([X || X=#g_address{} <- mnesia:table(g_address), 
+                    Url =:= X#g_address.url]),
+    gitto_db:select1(Q).
+
+create_address(Url, RepId) when is_integer(RepId) ->
+    gitto_db:write(#g_address{url = Url, repository = RepId}).
+
+    
 
 address(PL) ->
     address(PL, #g_address{}).
@@ -97,6 +117,8 @@ project(PL, Rec) ->
 set_project_field(K, V, A) ->
     A#g_project{K = V}.
 
+create_project(Name) ->
+    gitto_db:write(#g_project{name = Name}).
 
 
 %% ------------------------------------------------------------------
@@ -216,4 +238,101 @@ person_id(undefined, Name, Email) ->
 
 person_id(Id, undefined, undefined) ->
     Id.
+
+
+%% ------------------------------------------------------------------
+%% Dependency
+%% ------------------------------------------------------------------
+
+%% @doc Decode an element of rebar's deps directive.
+dependency({Name,Vsn,{git,Url,RevDesc}}, RcptRev = #g_revision{}) ->
+    {DonorAddr, DonorRep, DonorProject} =
+        case lookup_address(Url) of
+            undefined -> 
+                P = create_project(Name),
+                R = create_repository(to_id(P)),
+                A = create_address(Url, to_id(R)),
+                {A, R, P};
+            A = #g_address{} ->
+                #g_repository{} =
+                R = gitto_db:lookup(g_revision, A.repository),
+                P = gitto_db:lookup(g_project,  R.project),
+                {A, R, P}
+        end,
+    case lookup_dependency(RcptRev, DonorRep) of
+        %% Not yet created.
+        undefined -> 
+            DonorRevId = calculate_revision(RevDesc, DonorRep, 
+                                            RcptRev.author_date),
+            lookup_dependency(to_id(RcptRev), DonorRevId);
+        Dep -> Dep
+    end.
+
+
+-spec lookup_dependency(RcptRev, DonorRep) -> Dep when
+    RcptRev :: gitto_type:revision_id(),
+    DonorRep :: gitto_type:revision_id(),
+    Dep :: gitto_type:dependency().
+
+lookup_dependency(RcptRev, DonorRep) ->
+    Q = qlc:q([Dep || DonorRR = #g_repository_x_revision{} 
+                              <- mnesia:table(g_repository_x_revision),
+                      DonorRR.repository =:= DonorRep, 
+                      Dep = #g_dependency{} 
+                              <- mnesia:table(g_dependency),
+                      Dep.donor     =:= DonorRR.revision,
+                      Dep.recipient =:= RcptRev]),
+    gitto_db:select1(Q).
+
+
+-spec calculate_revision(DonorRevDesc, DonorRep, RcptRevDate) -> RevId when
+    DonorRevDesc :: term(),
+    DonorRep :: gitto_type:repository(),
+    RcptRevDate :: gitto_type:timestamp(),
+    RevId :: gitto_type:revision_id().
+
+calculate_revision({tag, TagName}, #g_repository{id = RepId}, _) ->
+    TagName1 = unicode:characters_to_binary(TagName),
+    Q = qlc:q([Tag.revision || Tag = #g_tag{} <- mnesia:table(g_tag),
+                               Tag.repository =:= RepId,
+                               Tag.name =:= TagName1]),
+    gitto_db:select1(Q);
+calculate_revision({branch, Branch}, #g_repository{id = RepId}, Date) 
+    when Branch =:= "HEAD"; Branch =:= "master" ->
+    case mnesia:read(g_revision_date_index, {RepId, Date}) of
+    %% Matched by key (it is rare case).
+    [#g_revision_date_index{revision = RevId}] -> RevId;
+
+    [] -> 
+        %% Get something before this date.
+        case mnesia:prev(g_revision_date_index, {RepId, Date}) of
+            %% No entries for this table.
+            '$end_of_table' -> undefined;
+            %% Something was before this Key.
+            Key -> 
+                case hd(mnesia:read(g_revision_date_index, Key)) of
+                    #g_revision_date_index{id = {RepId, _Date}, 
+                                           revision = RevId} -> RevId;
+                    %% It is a revision from another repository.
+                    %% No valid revisions for this repository.
+                    _ -> undefined
+                end
+        end
+    end;
+calculate_revision({branch, _Branch}, #g_repository{}, _) ->
+    %% TODO: calculate for other branches.
+    undefined;
+calculate_revision(RevisionHash, Rep = #g_repository{}, _) ->
+    revision_id(to_id(Rep), RevisionHash).
+
+
+repository_x_revision(Rep, Rev, IsFirstParent) ->
+    #g_repository_x_revision{repository = to_id(Rep), 
+                             revision = to_id(Rev),
+                             is_first_parent = IsFirstParent}.
+
+
+revision_date_index(#g_repository{id = RepId}, 
+                    #g_revision{id = RevId, committer_date = Date}) ->
+    #g_revision_date_index{id = {RepId, Date}, revision = RevId}.
 

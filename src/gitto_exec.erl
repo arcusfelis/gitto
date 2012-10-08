@@ -96,8 +96,14 @@ download_test() ->
     Revisions = 
         [gitto_db:write(
             gitto_store:revision(
-                gitto_store:improper_revision([Commit])))
+                gitto_store:improper_revision(Commit)))
             || Commit <- Commits],
+    RRs = 
+        [gitto_db:write(gitto_store:repository_x_revision(Rep, Rev, true))
+            || Rev <- Revisions],
+    RDIs = 
+        [gitto_db:write(gitto_store:revision_date_index(Rep, Rev))
+            || Rev <- Revisions],
     io:format(user, "Revisions: ~p~n", [Revisions]),
 
     ok.
@@ -203,11 +209,8 @@ create_example_with_rebar_dependiencies_test() ->
 
     Versions = 
     lists:reverse(gitto_rep:rebar_config_versions(RepDir, ["--first-parent", "-m"])),
+    io:format(user, "~nVersions: ~p~n", [Versions]),
 
-    Durations = 
-    gitto_rep:dependency_durations(Versions),
-
-    io:format(user, "~nVersions: ~p ~nDurations: ~p~n", [Versions, Durations]),
     ok.
 
 
