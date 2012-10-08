@@ -15,27 +15,27 @@ commit(RepDir, Comment) ->
     mycmd:cmd("git", ["commit", "-m", Comment],  [{cd, RepDir}]).
 
 tag(RepDir, Comment) ->
-    mycmd:cmd("git", ["tag", Comment],  [{cd, RepDir}]).
+    mycmd:cmd("git", ["tag", "--", Comment],  [{cd, RepDir}]).
 
 merge(RepDir, Version) ->
-    mycmd:cmd("git", ["merge", Version],  [{cd, RepDir}]).
+    mycmd:cmd("git", ["merge", "--", Version],  [{cd, RepDir}]).
 
 %% Clone from `RepURL' to `RepURL'.
 %% git clone --bare
 bare_clone(RepURL, RepDir) ->
-    mycmd:cmd("git", ["clone", "--bare", RepURL, RepDir]).
+    mycmd:cmd("git", ["clone", "--bare", "--", RepURL, RepDir]).
 
 clone(RepURL, RepDir) ->
-    mycmd:cmd("git", ["clone", RepURL, RepDir]).
+    mycmd:cmd("git", ["clone", "--", RepURL, RepDir]).
 
 %% @doc Pull from `RepURL' to `RepDir'.
 pull(RepURL, RepDir) ->
-    mycmd:cmd("git", ["pull", RepURL],  [{cd, RepDir}]).
+    mycmd:cmd("git", ["pull", "--", RepURL],  [{cd, RepDir}]).
 
 %% git clone --shared
 checkout(BareRepDir, TargetRepDir, Revision) -> 
-    mycmd:cmd("git", ["clone", "--shared", BareRepDir, TargetRepDir]),
-    mycmd:cmd("git", ["chechout", Revision],
+    mycmd:cmd("git", ["clone", "--shared", "--", BareRepDir, TargetRepDir]),
+    mycmd:cmd("git", ["chechout", "--", Revision],
               [{cd, TargetRepDir}]).
 
 
@@ -53,7 +53,7 @@ whenchanged(RepDir, FileName) ->
 %% git whatchanged --format="%H" rebar.config
 whenchanged(RepDir, FileName, Flags) ->
     Data = cmd("git", 
-               ["whatchanged", "--format=%H"] ++ Flags ++ [FileName], 
+               ["whatchanged", "--format=%H"] ++ Flags ++ ["--", FileName], 
                [{cd, RepDir}]),
     iolist_to_binary(Data).
 
@@ -89,7 +89,7 @@ versions(RepDir, FN, Flags) ->
       catch error:{bad_exit_status, _} -> <<"">>
       end} || RevNum <- RevList].
 
-rebar_versions(RepDir, Flags) ->
+rebar_config_versions(RepDir, Flags) ->
     Configs = versions(RepDir, "rebar.config", Flags),
     [{RevNum, proplists:get_value(deps, 
                                   gitto_utils:consult_string(Data))}
@@ -170,7 +170,8 @@ read_file_from_wrong_revision_test() ->
 whenchanged_test() ->
     RepDir = code:lib_dir(gitto),
     %% Newest version is last.
-    Versions = lists:reverse(rebar_versions(RepDir, ["--first-parent", "-m"])),
+    %% Merges are included.
+    Versions = lists:reverse(rebar_config_versions(RepDir, ["--first-parent", "-m"])),
     io:format(user, "~nwhenchanged: ~p~n", [dependency_durations(Versions)]).
 
 

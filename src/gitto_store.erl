@@ -1,6 +1,7 @@
 -module(gitto_store).
 -include_lib("gitto/src/gitto.hrl").
 -compile({parse_transform, vodka}).
+-compile({parse_transform, arak}).
 -include_lib("stdlib/include/qlc.hrl").
 
 -export([to_id/1]).
@@ -120,30 +121,40 @@ set_revision_field(K, V, A) ->
     A#g_revision{K = V}.
 
 
--spec revision_ids(RepId, Ids, Hashes) -> Ids | undefined when
-    RepId   :: gitto_type:repository_id(),
+-spec revision_ids(Ids, Hashes) -> Ids | undefined when
     Ids     :: [gitto_type:revision_id()],
     Hashes  :: [gitto_type:hash()].
 
-revision_ids(_, undefined, undefined) ->
+revision_ids(undefined, undefined) ->
     undefined;
 
-revision_ids(_, Ids, undefined) ->
+revision_ids(Ids, undefined) ->
     Ids;
 
-revision_ids(_, undefined, []) ->
+revision_ids(undefined, []) ->
     [];
 
-revision_ids(RepId, undefined, Hashes) when RepId =/= undefined ->
-    Q = qlc:q([X || X=#g_revision{commit_hash = H, repository = R}
-                         <- mnesia:table(g_revision),
-                    Hash <- Hashes,
-                    H =:= Hash,
-                    R =:= RepId]),
-    RevIds = qlc:e(Q),
-    %% One of the hashes is not in the database.
-    true = length(RevIds) =:= length(Hashes),
-    RevIds.
+revision_ids(undefined, Hashes) ->
+    [revision_id(undefined, Hash) || Hash <- Hashes].
+
+
+revision_id(undefined, undefined) ->
+    undefined;
+
+revision_id(undefined, Hash) ->
+    Q = qlc:q([X.id || X = #g_revision{} <- mnesia:table(g_address), 
+                       Hash =:= X.commit_hash]),
+    case gitto_db:select(Q) of
+        []   -> to_id(create_revision(Hash));
+        [Id] -> Id
+    end;
+
+revision_id(Id, undefined) ->
+    Id.
+
+
+create_revision(Hash) ->
+    gitto_db:write(#g_revision{commit_hash = Hash}).
 
 
 improper_revision(PL) ->
@@ -156,9 +167,8 @@ set_improper_revision_field(K, V, A) ->
     A#g_improper_revision{K = V}.
 
 impoper_revision_to_proper_proplist(X = #g_improper_revision{}) ->
-    [{id,               X#g_improper_revision.id}
-    ,{repository,       X#g_improper_revision.repository}
-    ,{is_first_parent,  X#g_improper_revision.is_first_parent}
+    [{id,               revision_id(X#g_improper_revision.id,
+                                    X#g_improper_revision.commit_hash)}
     ,{author,           person_id(X#g_improper_revision.author,
                                   X#g_improper_revision.author_name,
                                   X#g_improper_revision.author_email)}
@@ -172,10 +182,8 @@ impoper_revision_to_proper_proplist(X = #g_improper_revision{}) ->
     ,{subject,          X#g_improper_revision.subject}
     ,{body,             X#g_improper_revision.body}
 
-    ,{parents,          revision_ids(X#g_improper_revision.repository,
-                                     X#g_improper_revision.parents,
+    ,{parents,          revision_ids(X#g_improper_revision.parents,
                                      X#g_improper_revision.parent_hashes)}
-    ,{dependencies,     X#g_improper_revision.dependencies}
     ].
 
 
@@ -195,9 +203,10 @@ create_person(Name, Email) ->
 person_id(undefined, undefined, undefined) ->
     undefined;
 
+%% Find or create.
 person_id(undefined, Name, Email) ->
-    Q = qlc:q([X || X=#g_person{name = NameI, email = EmailI} 
-                        <- mnesia:table(g_address), 
+    Q = qlc:q([X.id || X=#g_person{name = NameI, email = EmailI} 
+                            <- mnesia:table(g_address), 
                     Name =:= NameI,
                     Email =:= EmailI]),
     case gitto_db:select(Q) of
@@ -207,3 +216,4 @@ person_id(undefined, Name, Email) ->
 
 person_id(Id, undefined, undefined) ->
     Id.
+

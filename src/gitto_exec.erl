@@ -96,7 +96,7 @@ download_test() ->
     Revisions = 
         [gitto_db:write(
             gitto_store:revision(
-                gitto_store:improper_revision([{repository, RepId} | Commit])))
+                gitto_store:improper_revision([Commit])))
             || Commit <- Commits],
     io:format(user, "Revisions: ~p~n", [Revisions]),
 
@@ -134,7 +134,6 @@ create_example_branching_repository_test() ->
 
 %%  lists:reverse(gitto_rep:rebar_versions(RepDir, ["--first-parent", "-m"])),
     ok.
-
 
 
 create_example_branching_repository(Url) ->
@@ -182,6 +181,86 @@ create_example_branching_repository(Url) ->
 
     Url1.
 
+
+
+create_example_with_rebar_dependiencies_test() ->
+    gitto_db:up(),
+    Cfg = gitto_config:example(),
+    gitto_config:get_value(bare_reps_dir, Cfg),
+    
+    Project = gitto_db:write(gitto_store:project([{name, deps_test}])),
+    ProjectId = gitto_store:to_id(Project),
+    io:format(user, "Project: ~p~n", [Project]),
+
+    RepCon = [{project, ProjectId}],
+    Rep = gitto_db:write(gitto_store:repository(RepCon)),
+
+    %% Create an empty repository
+    %% An example of the Url is `data/test_reps/deps_test4'.
+    Url = filename:join(gitto_config:get_value(test_reps_dir, Cfg),
+                        [deps_test, integer_to_list(ProjectId)]),
+    RepDir = create_example_with_rebar_dependiencies(Url),
+
+    Versions = 
+    lists:reverse(gitto_rep:rebar_config_versions(RepDir, ["--first-parent", "-m"])),
+
+    Durations = 
+    gitto_rep:dependency_durations(Versions),
+
+    io:format(user, "~nVersions: ~p ~nDurations: ~p~n", [Versions, Durations]),
+    ok.
+
+
+create_example_with_rebar_dependiencies(Url) ->
+    %% Create a directory structure:
+    %% + Url/
+    %% |-Url/app1
+    %% |-Url/app2
+    Url1 = filename:join(Url, "app1"),
+    Url2 = filename:join(Url, "app2"),
+    Url3 = filename:join(Url, "app3"),
+
+    error_logger:info_msg("Create an example repository: ~ts~n", [Url1]),
+    error_logger:info_msg("Create an example repository: ~ts~n", [Url2]),
+    error_logger:info_msg("Create an example repository: ~ts~n", [Url3]),
+
+    ok = file:make_dir(Url),
+    ok = file:make_dir(Url1),
+    ok = file:make_dir(Url2),
+    ok = file:make_dir(Url3),
+
+    Deps1_1 = [{app2, ".*", {git, "../app2", "HEAD"}}],
+    Deps1_2 = [{app2, ".*", {git, "../app2", "HEAD"}},
+               {app3, ".*", {git, "../app3", "HEAD"}}],
+
+    Cfg1_1 = io_lib:format("{deps, ~p}.", [Deps1_1]),
+    Cfg1_2 = io_lib:format("{deps, ~p}.", [Deps1_2]),
+    Cfg2_1 = Cfg3_1 = "{deps, []}.",
+    ok = file:write_file(filename:join(Url1, "rebar.config"), Cfg1_1),
+    ok = file:write_file(filename:join(Url2, "rebar.config"), Cfg2_1),
+    ok = file:write_file(filename:join(Url3, "rebar.config"), Cfg3_1),
+
+    gitto_rep:init(Url1),
+    gitto_rep:add_all(Url1),
+    gitto_rep:commit(Url1, "Application 1. Commit 1."),
+    gitto_rep:tag(Url1, "A1C1"),
+
+    gitto_rep:init(Url2),
+    gitto_rep:add_all(Url2),
+    gitto_rep:commit(Url2, "Application 2. Commit 1."),
+    gitto_rep:tag(Url2, "A2C1"),
+
+    gitto_rep:init(Url3),
+    gitto_rep:add_all(Url3),
+    gitto_rep:commit(Url3, "Application 3. Commit 1."),
+    gitto_rep:tag(Url3, "A3C1"),
+
+    ok = file:write_file(filename:join(Url1, "rebar.config"), Cfg1_2),
+    gitto_rep:add_all(Url1),
+    gitto_rep:commit(Url1, "Application 1. Commit 2."),
+    gitto_rep:tag(Url1, "A1C2"), 
+
+    Url1.
 
 -endif.
 
