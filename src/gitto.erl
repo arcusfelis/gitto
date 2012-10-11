@@ -1,4 +1,9 @@
 -module(gitto).
+-export([start/0, stop/0]).
 
-%% git clone git://github.com/arcusfelis/xapian-erlang-bindings.git --bare
+start() ->
+    application:start(gitto).
 
+
+stop() ->
+    application:stop(gitto).

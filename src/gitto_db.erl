@@ -17,68 +17,75 @@
 %% -----------------------------------------------------------------------
 
 up() ->
-    mnesia:create_schema([node()]),
-    mnesia:start(),
+    stopped = mnesia:stop(),
+    case mnesia:create_schema([node()]) of
+        {error,{_Node,{already_exists,_Node}}} ->
+            ok = mnesia:start(),
+            ok;
+        ok -> 
+            error_logger:info_msg("Create tables.~n", []),
+            
+            ok = mnesia:start(),
 
-    mnesia:create_table(g_project,
-        [{type, ordered_set}
-        ,{disc_copies, [node()]}
-        ,{attributes, record_info(fields, g_project)}
-        ]),
+            mnesia:create_table(g_project,
+                [{type, ordered_set}
+                ,{disc_copies, [node()]}
+                ,{attributes, record_info(fields, g_project)}
+                ]),
 
-    mnesia:create_table(g_repository,
-        [{type, ordered_set}
-        ,{disc_copies, [node()]}
-        ,{attributes, record_info(fields, g_repository)}
-        ]),
+            mnesia:create_table(g_repository,
+                [{type, ordered_set}
+                ,{disc_copies, [node()]}
+                ,{attributes, record_info(fields, g_repository)}
+                ]),
 
-    mnesia:create_table(g_address,
-        [{type, ordered_set}
-        ,{disc_copies, [node()]}
-        ,{attributes, record_info(fields, g_address)}
-        ]),
+            mnesia:create_table(g_address,
+                [{type, ordered_set}
+                ,{disc_copies, [node()]}
+                ,{attributes, record_info(fields, g_address)}
+                ]),
 
-    mnesia:create_table(g_person,
-        [{type, ordered_set}
-        ,{disc_copies, [node()]}
-        ,{attributes, record_info(fields, g_person)}
-        ]),
+            mnesia:create_table(g_person,
+                [{type, ordered_set}
+                ,{disc_copies, [node()]}
+                ,{attributes, record_info(fields, g_person)}
+                ]),
 
-    mnesia:create_table(g_revision,
-        [{type, ordered_set}
-        ,{disc_copies, [node()]}
-        ,{attributes, record_info(fields, g_revision)}
-        ,{index, [commit_hash]}
-        ]),
+            mnesia:create_table(g_revision,
+                [{type, ordered_set}
+                ,{disc_copies, [node()]}
+                ,{attributes, record_info(fields, g_revision)}
+                ,{index, [commit_hash]}
+                ]),
 
-    mnesia:create_table(g_dependency,
-        [{type, ordered_set}
-        ,{disc_copies, [node()]}
-        ,{attributes, record_info(fields, g_dependency)}
-        ]),
+            mnesia:create_table(g_dependency,
+                [{type, ordered_set}
+                ,{disc_copies, [node()]}
+                ,{attributes, record_info(fields, g_dependency)}
+                ]),
 
-    mnesia:create_table(g_repository_x_revision,
-        [{type, ordered_set}
-        ,{disc_copies, [node()]}
-        ,{attributes, record_info(fields, g_repository_x_revision)}
-        ,{index, [revision]}
-        ]),
+            mnesia:create_table(g_repository_x_revision,
+                [{type, ordered_set}
+                ,{disc_copies, [node()]}
+                ,{attributes, record_info(fields, g_repository_x_revision)}
+                ,{index, [revision]}
+                ]),
 
-    mnesia:create_table(g_tag,
-        [{type, ordered_set}
-        ,{disc_copies, [node()]}
-        ,{attributes, record_info(fields, g_tag)}
-        ,{index, [name]}
-        ]),
+            mnesia:create_table(g_tag,
+                [{type, ordered_set}
+                ,{disc_copies, [node()]}
+                ,{attributes, record_info(fields, g_tag)}
+                ,{index, [name]}
+                ]),
 
-    mnesia:create_table(g_revision_date_index,
-        [{type, ordered_set}
-        ,{disc_copies, [node()]}
-        ,{attributes, record_info(fields, g_revision_date_index)}
-        ]),
+            mnesia:create_table(g_revision_date_index,
+                [{type, ordered_set}
+                ,{disc_copies, [node()]}
+                ,{attributes, record_info(fields, g_revision_date_index)}
+                ])
+    end,
 
-    mnesia:wait_for_tables(tables(), 3000),
-
+    ok = mnesia:wait_for_tables(tables(), 3000),
     ok.
 
 
@@ -89,7 +96,7 @@ down() ->
 
 tables() ->
     [g_project, g_repository, g_address, g_person, 
-     g_revision, g_dependency, g_first_parent, g_tag, g_repository_x_revision,
+     g_revision, g_dependency, g_tag, g_repository_x_revision,
      g_revision_date_index].
 
 

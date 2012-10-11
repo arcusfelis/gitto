@@ -12,3 +12,5 @@ fprof.trace
 doc
 Mnesia.*
 data
+test/gitto_SUITE_data
+logs/*

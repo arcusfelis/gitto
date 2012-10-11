@@ -4,7 +4,8 @@
 -compile({parse_transform, arak}).
 -include_lib("stdlib/include/qlc.hrl").
 
--export([to_id/1]).
+-export([to_id/1,
+         table/1]).
 
 -export([repository_addresses/1,
          repository_literal_id/1,
@@ -31,6 +32,9 @@
 
 to_id(Rec) ->
     erlang:element(2, Rec).
+
+table(Rec) ->
+    erlang:element(1, Rec).
 
 
 
