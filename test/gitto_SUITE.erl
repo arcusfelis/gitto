@@ -129,10 +129,20 @@ download_case(CommonTestCfg) ->
 
     %% Test one: try to clone.
     gitto_exec:download(Cfg, Rep),
+    parse_and_save(Cfg, Rep).
 
+parse_and_save(Cfg, Rep) ->
     %% Test two: try to extract metainformation.
     Commits = lists:reverse(gitto_log:parse_commits(gitto_exec:log(Cfg, Rep))),
     io:format(user, "Reversed commits: ~p~n", [Commits]),
+    
+    FirstParentHashes = gitto_exec:first_parent(Cfg, Rep),
+    io:format(user, "First parents: ~p~n", [FirstParentHashes]),
+    
+    IsFirstParent = fun(Rev) -> 
+            Hash = gitto_store:revision_hash(Rev),
+            lists:member(Hash, FirstParentHashes)
+        end,
 
     %% Author and committer will be added in the DB automatically with the
     %% `improper_revision' call.
@@ -144,9 +154,12 @@ download_case(CommonTestCfg) ->
             gitto_store:revision(
                 gitto_store:improper_revision(Commit)))
             || Commit <- Commits],
+    %% Create connectings beetween the repository and revisions.
     RRs = 
-        [gitto_db:write(gitto_store:repository_x_revision(Rep, Rev, true))
+        [gitto_db:write(
+            gitto_store:repository_x_revision(Rep, Rev, IsFirstParent(Rev)))
             || Rev <- Revisions],
+    %% Create date indexes.
     RDIs = 
         [gitto_db:write(gitto_store:revision_date_index(Rep, Rev))
             || Rev <- Revisions],
@@ -154,6 +167,16 @@ download_case(CommonTestCfg) ->
 
     ok.
 
+analyse_dependencies(Cfg, Rep) ->
+    Versions = lists:reverse(gitto_exec:rebar_config_versions(Cfg, Rep)),
+    io:format(user, "Versions: ~p~n", [Versions]),
+    
+    Deps =
+    [gitto_db:write(
+        gitto_store:dependency(Dep, gitto_store:lookup_revision(RevHash)))
+        || {RevHash, Deps} <- Versions, Dep <- Deps],
+    io:format(user, "Deps: ~p~n", [Deps]),
+    ok.
 
 create_example_repository(Url) ->
     error_logger:info_msg("Create an example repository: ~ts", [Url]),
@@ -247,14 +270,16 @@ create_example_with_rebar_dependiencies_case(CommonTestCfg) ->
 
     %% Create an empty repository
     %% An example of the Url is `data/test_reps/deps_test4'.
-    Url = filename:join(gitto_config:get_value(test_reps_dir, Cfg),
+    DataDir = filename:join(gitto_config:get_value(test_reps_dir, Cfg),
                         [deps_test, integer_to_list(ProjectId)]),
-    RepDir = create_example_with_rebar_dependiencies(Url),
+    RepDir = create_example_with_rebar_dependiencies(DataDir),
 
-    Versions = 
-    lists:reverse(gitto_rep:rebar_config_versions(RepDir, ["--first-parent", "-m"])),
-    io:format(user, "~nVersions: ~p~n", [Versions]),
+    AddrCon = [{repository, gitto_store:to_id(Rep)}, {url, RepDir}],
+    Addr = gitto_db:write(gitto_store:address(AddrCon)),
 
+    gitto_exec:download(Cfg, Rep),
+    parse_and_save(Cfg, Rep),
+    analyse_dependencies(Cfg, Rep),
     ok.
 
 

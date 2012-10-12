@@ -10,6 +10,12 @@
 %% Log
 -export([log/2]).
 
+%% First parent
+-export([first_parent/2]).
+
+%% Rebar config
+-export([rebar_config_versions/2]).
+
 
 %% ------------------------------------------------------------------
 %% Download
@@ -40,8 +46,10 @@ download_one_of([], _LocalPath) ->
 download_one_of([Addr|Addrs], LocalPath) ->
     try
         gitto_rep:bare_clone(gitto_store:address_to_url(Addr), LocalPath),
+        gitto_store:update_downloading_date(Addr),
         Addr
         catch Type:Error ->
+        gitto_store:update_trying_date(Addr),
         error_logger:error_msg("Downloading error ~p:~p from ~p.~n",
                                [Type, Error, Addr]),
         download_one_of(Addrs, LocalPath)
@@ -56,3 +64,20 @@ log(Cfg, Rep) ->
     LocalPath = local_repository_path(Cfg, Rep),
     gitto_rep:log(LocalPath).
 
+
+%% ------------------------------------------------------------------
+%% First Parent
+%% ------------------------------------------------------------------
+
+first_parent(Cfg, Rep) ->
+    LocalPath = local_repository_path(Cfg, Rep),
+    gitto_rep:first_parent(LocalPath).
+
+
+%% ------------------------------------------------------------------
+%% Rebar config
+%% ------------------------------------------------------------------
+
+rebar_config_versions(Cfg, Rep) ->
+    LocalPath = local_repository_path(Cfg, Rep),
+    gitto_rep:rebar_config_versions(LocalPath, ["--first-parent", "-m"]).

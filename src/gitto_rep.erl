@@ -60,6 +60,16 @@ whenchanged(RepDir, FileName, Flags) ->
 %% gitto_whenchanged(Str)
 
 
+first_parent(RepDir) ->
+    first_parents(RepDir, []).
+
+first_parents(RepDir, Flags) ->
+    Data = cmd("git", 
+               ["log", "--format=%H", "--first-parent"] ++ Flags, 
+               [{cd, RepDir}]),
+    gitto_utils:parse_commit_hashes(iolist_to_binary(Data)).
+
+
 %% @doc Extract the context of the single file from a specific revision.
 %% git show 650c7db44349a18eb0794af33cc30837c0d1c536:rebar.config
 read_file(RepDir, Revision, FileName) ->
@@ -83,7 +93,7 @@ cmd(Cmd, Args) ->
 
 %% The oldes version is last.
 versions(RepDir, FN, Flags) ->
-    RevList = gitto_whenchanged:parse_commits(whenchanged(RepDir, FN, Flags)),
+    RevList = gitto_utils:parse_commit_hashes(whenchanged(RepDir, FN, Flags)),
     [{RevNum, 
       try read_file(RepDir, binary_to_list(RevNum), FN)
       catch error:{bad_exit_status, _} -> <<"">>

@@ -9,7 +9,8 @@
 
 -record(g_repository, {
         id :: gitto_type:repository_id(),
-        project :: gitto_type:project_id()
+        project :: gitto_type:project_id(),
+        updated :: gitto_type:timestamp() 
 }).
 
 -record(g_address, {

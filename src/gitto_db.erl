@@ -1,13 +1,16 @@
 -module(gitto_db).
 -export([up/0, down/0]).
 -export([ lookup/2
+        , read/2
         , write/1
+        , update_with/3
         , remove/2
         , record_to_id/1
         , match_object/1
 
         , select/1
-        , select1/1]).
+        , select1/1
+        , transaction/1]).
 
 -include_lib("gitto/src/gitto.hrl").
 
@@ -161,6 +164,28 @@ lookup(Tab, Id) ->
     end.
 
 
+update_with(F, Tab, Id) when is_function(F, 1) ->
+    TransF = fun() -> 
+            [begin 
+                NewRec = F(Rec),
+                ok = mnesia:write(NewRec),
+                NewRec
+             end || Rec <- mnesia:read(Tab, Id)]
+        end,
+    case mnesia:transaction(TransF) of
+    {atomic, Result} ->
+        Result
+    end.
+
+
+read(Tab, Id) ->
+    F = fun() -> mnesia:read(Tab, Id) end,
+    case mnesia:transaction(F) of
+    {atomic, Result} ->
+        Result
+    end.
+
+
 remove(Table, Id) ->
     case mnesia:is_transaction() of
         false ->
@@ -189,6 +214,20 @@ select(Q)->
     end.
 
 
+transaction(F)->
+    %% to prevent against nested transactions
+    %% to ensure it also works whether table
+    %% is fragmented or not, we will use
+    %% mnesia:activity/4
+
+    case mnesia:is_transaction() of
+        false ->
+            {atomic, X} = mnesia:transaction(F),
+            X;
+        true -> F()
+    end.
+
+
 select1(Q) ->
     case select(Q) of
         []  -> undefined;
@@ -212,3 +251,5 @@ match_object(Pattern) ->
 
 record_to_id(Rec) ->
     erlang:element(2, Rec).
+
+
