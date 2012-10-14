@@ -47,6 +47,7 @@
 
 
 %% Denormalized version of #g_revision.
+%% It is not used as a table.
 -record(g_improper_revision, {
         id              :: gitto_type:revision_id(),
         commit_hash     :: gitto_type:hash(),

@@ -30,7 +30,9 @@
 -export([improper_revision/1,
          improper_revision/2]).
 
--export([dependency/2]).
+-export([dependency/2,
+         missing_dependencies/1,
+         dependency_to_donor_repository/1]).
 
 -export([revision_date_index/2,
          repository_x_revision/3]).
@@ -292,6 +294,7 @@ person_id(Id, undefined, undefined) ->
 %% ------------------------------------------------------------------
 
 %% @doc Decode an element of rebar's deps directive.
+%% `Data' is from rebar.
 dependency({Name,Vsn,{git,Url,RevDesc}} = Data, RcptRev = #g_revision{}) ->
     {DonorAddr, DonorRep, DonorProject} =
         case lookup_address(Url) of
@@ -307,7 +310,7 @@ dependency({Name,Vsn,{git,Url,RevDesc}} = Data, RcptRev = #g_revision{}) ->
                 {A, R, P}
         end,
     DonorRev =
-        case lookup_dependency(RcptRev, DonorRep) of
+        case match_donor_dependency(RcptRev, DonorRep) of
             %% Not yet created.
             undefined -> 
                 DonorRevId = calculate_revision(RevDesc, DonorRep, 
@@ -324,12 +327,13 @@ dependency({Name,Vsn,{git,Url,RevDesc}} = Data, RcptRev = #g_revision{}) ->
     }.
 
 
--spec lookup_dependency(RcptRev, DonorRep) -> Dep when
+%% @doc Like @{link lookup_dependency/2}, but donor revision is unknown.
+-spec match_donor_dependency(RcptRev, DonorRep) -> Dep when
     RcptRev :: gitto_type:revision_id(),
-    DonorRep :: gitto_type:revision_id(),
+    DonorRep :: gitto_type:repository_id(),
     Dep :: gitto_type:dependency().
 
-lookup_dependency(RcptRev, DonorRep) ->
+match_donor_dependency(RcptRev, DonorRep) ->
     Q = qlc:q([Dep || DonorRR = #g_repository_x_revision{} 
                               <- mnesia:table(g_repository_x_revision),
                       DonorRR.repository =:= DonorRep, 
@@ -340,6 +344,21 @@ lookup_dependency(RcptRev, DonorRep) ->
     gitto_db:select1(Q).
 
 
+%% @doc Lookup a relation beetween 2 revisions from different repositories.
+-spec lookup_dependency(RcptRev, DonorRep) -> Dep when
+    RcptRev :: gitto_type:revision_id(),
+    DonorRep :: gitto_type:revision_id(),
+    Dep :: gitto_type:dependency().
+
+
+lookup_dependency(RcptRev, DonorRev) ->
+    Q = qlc:q([Dep || Dep = #g_dependency{} <- mnesia:table(g_dependency),
+                      Dep.donor     =:= DonorRev,
+                      Dep.recipient =:= RcptRev]),
+    gitto_db:select1(Q).
+    
+
+%% @doc `DonorRevDesc' is from rebar.
 -spec calculate_revision(DonorRevDesc, DonorRep, RcptRevDate) -> RevId when
     DonorRevDesc :: term(),
     DonorRep :: gitto_type:repository(),
@@ -359,6 +378,7 @@ calculate_revision({branch, _Branch}, #g_repository{}, _) ->
     %% TODO: calculate for other branches.
     undefined;
 calculate_revision(RevisionHash, Rep = #g_repository{}, _) ->
+    %% RevisionHash cannot be a tag (for example, "1.2.3").
     partical_revision_id(to_id(Rep), list_to_binary(RevisionHash)).
 
 
@@ -397,3 +417,48 @@ lookup_first_parent_revision_by_date(RepId, Date) ->
             end
         end,
     gitto_db:transaction(F).
+
+
+
+%% -------------------------------------
+%% Operations with sets of dependencies.
+
+
+%% @doc Extract a list of dependencies for given repository, where a donor 
+%% revision is unknown.
+%%
+%% To extract all dependencies, use @{link repository_dependencies_query/1}.
+missing_dependencies(RcptRep) ->
+    Deps = gitto_db:select(repository_dependencies_query(RcptRep)),
+    [Dep || Dep = #g_dependency{} <- Deps,
+            Dep.donor =:= undefined].
+
+
+%% @doc The revision number of the donor repository is unknown, lets try to get
+%% a repository id.
+dependency_to_donor_repository(#g_dependency{raw_data = Data}) ->
+    Url = raw_data_dependency_to_url(Data),
+    case lookup_address(Url) of
+        %% The repository id cannot be calculated.
+        %% Use @{link analyse_dependencies/2}.
+        undefined -> undefined;
+        A = #g_address{} ->
+            gitto_db:lookup(g_repository, A.repository)
+    end.
+
+
+%% @doc The given argument is from rebar.
+%% @see dependency_to_donor_repository/1
+%% @see dependency/2
+raw_data_dependency_to_url({_Name,_Vsn,{git,Url,_RevDesc}}) ->
+    Url.
+
+
+%% @doc Extract a dependency list of the given repository.
+repository_dependencies_query(#g_repository{id = RepId}) ->
+    qlc:q([Dep || Dep=#g_dependency{} <- mnesia:table(g_dependency), 
+                  RxR=#g_repository_x_revision{} 
+                      <- mnesia:table(g_repository_x_revision),
+                  Dep.recipient =:= RxR.revision,
+                  RxR.repository =:= RepId]).
+    

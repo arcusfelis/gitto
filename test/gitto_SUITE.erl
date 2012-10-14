@@ -113,7 +113,7 @@ download_case(CommonTestCfg) ->
     
     Project = gitto_db:write(gitto_store:project([{name, download_test}])),
     ProjectId = gitto_store:to_id(Project),
-    io:format(user, "Project: ~p~n", [Project]),
+    io:format(user, "~nProject: ~p~n", [Project]),
 
     RepCon = [{project, ProjectId}],
     Rep = gitto_db:write(gitto_store:repository(RepCon)),
@@ -134,10 +134,10 @@ download_case(CommonTestCfg) ->
 parse_and_save(Cfg, Rep) ->
     %% Test two: try to extract metainformation.
     Commits = lists:reverse(gitto_log:parse_commits(gitto_exec:log(Cfg, Rep))),
-    io:format(user, "Reversed commits: ~p~n", [Commits]),
+    io:format(user, "~nReversed commits: ~p~n", [Commits]),
     
     FirstParentHashes = gitto_exec:first_parent(Cfg, Rep),
-    io:format(user, "First parents: ~p~n", [FirstParentHashes]),
+    io:format(user, "~nFirst parents: ~p~n", [FirstParentHashes]),
     
     IsFirstParent = fun(Rev) -> 
             Hash = gitto_store:revision_hash(Rev),
@@ -163,19 +163,32 @@ parse_and_save(Cfg, Rep) ->
     RDIs = 
         [gitto_db:write(gitto_store:revision_date_index(Rep, Rev))
             || Rev <- Revisions],
-    io:format(user, "Revisions: ~p~n", [Revisions]),
+    io:format(user, "~nRevisions: ~p~n", [Revisions]),
 
     ok.
 
 analyse_dependencies(Cfg, Rep) ->
     Versions = lists:reverse(gitto_exec:rebar_config_versions(Cfg, Rep)),
-    io:format(user, "Versions: ~p~n", [Versions]),
+    io:format(user, "~nVersions: ~p~n", [Versions]),
     
     Deps =
     [gitto_db:write(
         gitto_store:dependency(Dep, gitto_store:lookup_revision(RevHash)))
         || {RevHash, Deps} <- Versions, Dep <- Deps],
-    io:format(user, "Deps: ~p~n", [Deps]),
+    io:format(user, "~nDeps: ~p~n", [Deps]),
+    ok.
+
+
+download_dependencies(Cfg, Rep) ->
+    %% Get first-level dependencies (deps of the current app, not deps of deps).
+    MissingDeps = gitto_store:missing_dependencies(Rep),
+    DonorRepsAndUdefs =
+        lists:usort([gitto_store:dependency_to_donor_repository(Dep) 
+                     || Dep <- MissingDeps]),
+    DonorReps =
+        [DonorRep || DonorRep <- DonorRepsAndUdefs, DonorRep =/= undefined],
+    io:format(user, "~nMissing deps: ~p~n from ~p.~n", 
+              [MissingDeps, DonorReps]),
     ok.
 
 create_example_repository(Url) ->
@@ -196,7 +209,7 @@ create_example_branching_repository_case(CommonTestCfg) ->
     
     Project = gitto_db:write(gitto_store:project([{name, branching_test}])),
     ProjectId = gitto_store:to_id(Project),
-    io:format(user, "Project: ~p~n", [Project]),
+    io:format(user, "~nProject: ~p~n", [Project]),
 
     RepCon = [{project, ProjectId}],
     Rep = gitto_db:write(gitto_store:repository(RepCon)),
@@ -230,7 +243,8 @@ create_example_branching_repository(Url) ->
     gitto_rep:commit(Url1, "Commit 1."),
     gitto_rep:tag(Url1, "C1"),
 
-    error_logger:info_msg("Fork an example repository: ~ts => ~ts", [Url1, Url2]),
+    error_logger:info_msg("Fork an example repository: ~ts => ~ts", 
+                          [Url1, Url2]),
     gitto_rep:clone(Url1, Url2),
 
     ok = file:write_file(filename:join(Url1, "README"), "Version 2."),
@@ -263,7 +277,7 @@ create_example_with_rebar_dependiencies_case(CommonTestCfg) ->
     
     Project = gitto_db:write(gitto_store:project([{name, deps_test}])),
     ProjectId = gitto_store:to_id(Project),
-    io:format(user, "Project: ~p~n", [Project]),
+    io:format(user, "~nProject: ~p~n", [Project]),
 
     RepCon = [{project, ProjectId}],
     Rep = gitto_db:write(gitto_store:repository(RepCon)),
@@ -280,6 +294,7 @@ create_example_with_rebar_dependiencies_case(CommonTestCfg) ->
     gitto_exec:download(Cfg, Rep),
     parse_and_save(Cfg, Rep),
     analyse_dependencies(Cfg, Rep),
+    download_dependencies(Cfg, Rep),
     ok.
 
 
@@ -301,9 +316,9 @@ create_example_with_rebar_dependiencies(Url) ->
     ok = ensure_dir(Url2),
     ok = ensure_dir(Url3),
 
-    Deps1_1 = [{app2, ".*", {git, "../app2", "HEAD"}}],
-    Deps1_2 = [{app2, ".*", {git, "../app2", "HEAD"}},
-               {app3, ".*", {git, "../app3", "HEAD"}}],
+    Deps1_1 = [{app2, ".*", {git, Url1, "HEAD"}}],
+    Deps1_2 = [{app2, ".*", {git, Url2, "HEAD"}},
+               {app3, ".*", {git, Url3, "HEAD"}}],
 
     Cfg1_1 = io_lib:format("{deps, ~p}.", [Deps1_1]),
     Cfg1_2 = io_lib:format("{deps, ~p}.", [Deps1_2]),
