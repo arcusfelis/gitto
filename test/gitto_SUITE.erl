@@ -132,6 +132,8 @@ download_case(CommonTestCfg) ->
     parse_and_save(Cfg, Rep).
 
 parse_and_save(Cfg, Rep) ->
+    io:format(user, "~nStart parsing and saving: ~p~n", [Rep]),
+
     %% Test two: try to extract metainformation.
     Commits = lists:reverse(gitto_log:parse_commits(gitto_exec:log(Cfg, Rep))),
     io:format(user, "~nReversed commits: ~p~n", [Commits]),
@@ -164,6 +166,7 @@ parse_and_save(Cfg, Rep) ->
         [gitto_db:write(gitto_store:revision_date_index(Rep, Rev))
             || Rev <- Revisions],
     io:format(user, "~nRevisions: ~p~n", [Revisions]),
+    io:format(user, "~nStop parsing and saving: ~p~n", [Rep]),
 
     ok.
 
@@ -189,7 +192,18 @@ download_dependencies(Cfg, Rep) ->
         [DonorRep || DonorRep <- DonorRepsAndUdefs, DonorRep =/= undefined],
     io:format(user, "~nMissing deps: ~p~n from ~p.~n", 
               [MissingDeps, DonorReps]),
+    %% TODO: Should be done parallelly.
+    [begin
+        gitto_exec:download(Cfg, DonorRep),
+        parse_and_save(Cfg, DonorRep)
+     end
+     || DonorRep <- DonorReps],
+    FixedDeps = [gitto_db:write(gitto_store:fix_dependency_donor(Dep))
+                 || Dep <- MissingDeps],
+    io:format(user, "~nFixed deps: ~p.~nOld deps: ~p.~n", 
+              [FixedDeps, MissingDeps]),
     ok.
+
 
 create_example_repository(Url) ->
     error_logger:info_msg("Create an example repository: ~ts", [Url]),
@@ -295,8 +309,27 @@ create_example_with_rebar_dependiencies_case(CommonTestCfg) ->
     parse_and_save(Cfg, Rep),
     analyse_dependencies(Cfg, Rep),
     download_dependencies(Cfg, Rep),
+    Rev = gitto_store:latest_revision_number(gitto_store:to_id(Rep)),
+    checkout_revision(Cfg, Rev),
+    compose(Cfg, Rev),
     ok.
 
+
+compose(Cfg, RevId) ->
+    io:format(user, "~nCompose revision #~p.~n", [RevId]),
+    Deps = gitto_store:recursively_lookup_dependencies(RevId),
+    io:format(user, "~nWanted deps ~p.~n", [Deps]),
+    ok.
+
+
+checkout_revision(Cfg, RevId) ->
+    RepId = gitto_store:revision_to_repository(RevId),
+    [erlang:error({cannot_get_revision_repository, RevId}) 
+     || RepId =:= undefined],
+    Rep = gitto_store:get_repository(RepId),
+    Rev = gitto_store:get_revision(RevId),
+    gitto_exec:checkout_revision(Cfg, Rep, Rev),
+    ok.
 
 create_example_with_rebar_dependiencies(Url) ->
     %% Create a directory structure:
@@ -316,7 +349,7 @@ create_example_with_rebar_dependiencies(Url) ->
     ok = ensure_dir(Url2),
     ok = ensure_dir(Url3),
 
-    Deps1_1 = [{app2, ".*", {git, Url1, "HEAD"}}],
+    Deps1_1 = [{app2, ".*", {git, Url2, "HEAD"}}],
     Deps1_2 = [{app2, ".*", {git, Url2, "HEAD"}},
                {app3, ".*", {git, Url3, "HEAD"}}],
 

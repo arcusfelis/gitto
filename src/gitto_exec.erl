@@ -16,6 +16,9 @@
 %% Rebar config
 -export([rebar_config_versions/2]).
 
+%% Checkout
+-export([checkout_revision/3]).
+
 
 %% ------------------------------------------------------------------
 %% Download
@@ -31,6 +34,10 @@ local_repository_path(Cfg, Rep) ->
     filename:join(gitto_config:get_value(bare_reps_dir, Cfg),
                   gitto_store:repository_literal_id(Rep)).
 
+
+local_revision_path(Cfg, Rep) ->
+    filename:join(gitto_config:get_value(rev_reps_dir, Cfg),
+                  gitto_store:revision_literal_id(Rep)).
 
 
 -spec download_one_of([Addr], LocalPath) -> Addr | undefined
@@ -81,3 +88,15 @@ first_parent(Cfg, Rep) ->
 rebar_config_versions(Cfg, Rep) ->
     LocalPath = local_repository_path(Cfg, Rep),
     gitto_rep:rebar_config_versions(LocalPath, ["--first-parent", "-m"]).
+
+
+%% ------------------------------------------------------------------
+%% Checkout
+%% ------------------------------------------------------------------
+
+checkout_revision(Cfg, Rep, Rev) ->
+    BareRepDir   = local_repository_path(Cfg, Rep),
+    TargetRepDir = local_revision_path(Cfg, Rev),
+    Revision     = gitto_store:revision_hash(Rev),
+    gitto_rep:checkout(BareRepDir, TargetRepDir, Revision),
+    ok.

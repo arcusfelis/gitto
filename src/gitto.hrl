@@ -42,7 +42,9 @@
         subject         :: unicode:unicode_binary(),
         body            :: unicode:unicode_binary(),
 
-        parents   = []  :: [gitto_type:revision_id()]
+        parents   = []  :: [gitto_type:revision_id()],
+        
+        is_compiled = false :: boolean()
 }).
 
 
@@ -85,7 +87,7 @@
 %% The count of entries with same `revision' field is much lesser than the ones
 %% with the same `repository'.
 -record(g_repository_x_revision, {
-        id              :: gitto_type:dependence_id(),
+        id              :: gitto_type:repository_x_revision_id(),
         repository      :: gitto_type:repository_id(),
         revision        :: gitto_type:revision_id(),
         is_first_parent :: boolean()
@@ -112,4 +114,9 @@
     %% `{repository_id(), branch_id(), timestamp()}' is the other form.
     id :: {gitto_type:repository_id(), gitto_type:timestamp()},
     revision :: gitto_type:revision_id()
+}).
+
+-record(g_counter, {
+        table           :: gitto_type:table_name(),
+        last_id         :: gitto_type:dependence_id()
 }).

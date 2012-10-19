@@ -85,7 +85,22 @@ up() ->
                 [{type, ordered_set}
                 ,{disc_copies, [node()]}
                 ,{attributes, record_info(fields, g_revision_date_index)}
-                ])
+                ]),
+
+            Res = mnesia:create_table(g_counter,
+                [{type, set}
+                ,{disc_copies, [node()]}
+                ,{attributes, record_info(fields, g_counter)}
+                ]),
+
+            case Res of
+                ok -> 
+                    [mnesia:write(T, #g_counter{table = T, last_id = 0})
+                     || T <- tables(), T =/= g_counter];
+                _Other ->
+                    %% Table was already created.
+                    ok
+            end
     end,
 
     ok = mnesia:wait_for_tables(tables(), 3000),
@@ -100,7 +115,7 @@ down() ->
 tables() ->
     [g_project, g_repository, g_address, g_person, 
      g_revision, g_dependency, g_tag, g_repository_x_revision,
-     g_revision_date_index].
+     g_revision_date_index, g_counter].
 
 
 
@@ -109,10 +124,8 @@ tables() ->
 %% -----------------------------------------------------------------------
 
 next_id(Tab) ->
-    case mnesia:last(Tab) of
-    '$end_of_table' -> 1;
-    N when is_integer(N) -> N+1
-    end.
+    PrevN = mnesia:dirty_update_counter(g_counter, Tab, #g_counter.last_id),
+    PrevN + 1.
 
 
 write(Rec) ->
@@ -164,7 +177,7 @@ lookup(Tab, Id) ->
     end.
 
 
-update_with(F, Tab, Id) when is_function(F, 1) ->
+update_with(F, Tab, Id) when is_function(F, 1), Id =/= undefined ->
     TransF = fun() -> 
             [begin 
                 NewRec = F(Rec),

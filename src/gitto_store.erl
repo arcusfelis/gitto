@@ -10,7 +10,8 @@
 -export([repository_addresses/1,
          repository_literal_id/1,
          repository/1,
-         repository/2]).
+         repository/2,
+         get_repository/1]).
 
 -export([address_to_url/1,
          address/1,
@@ -25,17 +26,24 @@
 -export([revision/1,
          revision/2,
          revision_hash/1,
-         lookup_revision/1]).
+         revision_literal_id/1,
+         lookup_revision/1,
+         get_revision/1]).
 
 -export([improper_revision/1,
          improper_revision/2]).
 
 -export([dependency/2,
          missing_dependencies/1,
-         dependency_to_donor_repository/1]).
+         dependency_to_donor_repository/1,
+         fix_dependency_donor/1,
+         lookup_dependencies/1,
+         recursively_lookup_dependencies/1]).
 
 -export([revision_date_index/2,
-         repository_x_revision/3]).
+         repository_x_revision/3,
+         latest_revision_number/1,
+         revision_to_repository/1]).
 
 to_id(Rec) ->
     erlang:element(2, Rec).
@@ -65,6 +73,10 @@ repository_literal_id(#g_repository{id = RepId}) ->
 
 repository_literal_id(RepId) ->
     integer_to_list(RepId).
+
+
+get_repository(RepId) ->
+    gitto_db:lookup(g_repository, RepId).
 
 
 repository(PL) ->
@@ -115,7 +127,7 @@ proplist_to_record(F, [{K,V}|PL], Rec) ->
 proplist_to_record(_F, [], Rec) ->
     Rec.
     
-update_downloading_date(#g_address{id = Id}) ->
+update_downloading_date(#g_address{id = Id, repository = RepId}) ->
     Now = gitto_utils:timestamp(),
     [_] = gitto_db:update_with(fun(X) -> 
                 X#g_address{
@@ -127,7 +139,7 @@ update_downloading_date(#g_address{id = Id}) ->
                 X#g_repository{
                     updated = Now
                 }
-        end, g_repository, Id),
+        end, g_repository, RepId),
     ok.
 
 
@@ -184,6 +196,13 @@ set_revision_field(K, V, A) ->
 revision_hash(#g_revision{commit_hash = Hash}) -> Hash.
 
 
+revision_literal_id(#g_revision{id = RevId}) ->
+    revision_literal_id(RevId);
+
+revision_literal_id(RevId) ->
+    integer_to_list(RevId).
+
+
 -spec revision_ids(Ids, Hashes) -> Ids | undefined when
     Ids     :: [gitto_type:revision_id()],
     Hashes  :: [gitto_type:hash()].
@@ -223,6 +242,9 @@ lookup_revision(Hash) ->
                        Hash =:= X.commit_hash]),
     gitto_db:select1(Q).
     
+get_revision(RevId) ->
+    gitto_db:lookup(g_revision, RevId).
+
 
 create_revision(Hash) ->
     gitto_db:write(#g_revision{commit_hash = Hash}).
@@ -310,12 +332,15 @@ dependency({Name,Vsn,{git,Url,RevDesc}} = Data, RcptRev = #g_revision{}) ->
                 {A, R, P}
         end,
     DonorRev =
-        case match_donor_dependency(RcptRev, DonorRep) of
+        case match_donor_dependency(to_id(RcptRev), to_id(DonorRep)) of
             %% Not yet created.
             undefined -> 
-                DonorRevId = calculate_revision(RevDesc, DonorRep, 
-                                                RcptRev.author_date),
-                lookup_dependency(to_id(RcptRev), DonorRevId);
+                case calculate_revision(RevDesc, DonorRep, 
+                                        RcptRev.author_date) of
+                    undefined -> undefined;
+                    DonorRevId ->
+                        lookup_dependency(to_id(RcptRev), DonorRevId)
+                end;
             Dep -> Dep
         end,
     #g_dependency{
@@ -327,13 +352,53 @@ dependency({Name,Vsn,{git,Url,RevDesc}} = Data, RcptRev = #g_revision{}) ->
     }.
 
 
+%% @doc Set the donor revision of the dependency.
+fix_dependency_donor(Dep = #g_dependency{}) ->
+    RcptRev = #g_revision{} = gitto_db:lookup(g_revision, Dep.recipient),
+    DonorRep = dependency_to_donor_repository(Dep),
+    DonorRevDesc = raw_data_dependency_to_revision_descriptor(Dep.raw_data),
+    DonorRevId = calculate_revision(DonorRevDesc, DonorRep, 
+                                    RcptRev.author_date),
+    Dep#g_dependency{donor = DonorRevId}.
+
+
+lookup_dependencies(RevId)
+    when is_integer(RevId) ->
+    Q = qlc:q([Dep || Dep = #g_dependency{} <- mnesia:table(g_dependency),
+                      Dep.recipient =:= RevId]),
+    gitto_db:select(Q).
+
+
+recursively_lookup_dependencies(RevId) ->
+    recursively_lookup_dependencies(RevId, 10).
+
+recursively_lookup_dependencies(RevId, 0) ->
+    error_logger:info_msg("Max level of nested dependencies is reached "
+                          "for revision ~p.", [RevId]),
+    [];
+recursively_lookup_dependencies(RevId, Lvl) ->
+    Deps = lookup_dependencies(RevId),
+    {ValidDeps, InvalidDeps} = lists:partition(fun is_valid_dependence/1, Deps),
+    [erlang:error({invalid_deps, InvalidDeps}) || InvalidDeps =/= []],
+    [DonorDep
+     || RcptDep <- ValidDeps,
+        DonorDep <- recursively_lookup_dependencies(RcptDep#g_dependency.donor, 
+                                                    Lvl - 1)]
+    ++ Deps.
+
+
+is_valid_dependence(#g_dependency{donor = Donor, recipient = Rcpt}) ->
+    Donor =/= undefined andalso Rcpt =/= undefined.
+
+
 %% @doc Like @{link lookup_dependency/2}, but donor revision is unknown.
 -spec match_donor_dependency(RcptRev, DonorRep) -> Dep when
     RcptRev :: gitto_type:revision_id(),
     DonorRep :: gitto_type:repository_id(),
     Dep :: gitto_type:dependency().
 
-match_donor_dependency(RcptRev, DonorRep) ->
+match_donor_dependency(RcptRev, DonorRep) 
+    when is_integer(RcptRev), is_integer(DonorRep) ->
     Q = qlc:q([Dep || DonorRR = #g_repository_x_revision{} 
                               <- mnesia:table(g_repository_x_revision),
                       DonorRR.repository =:= DonorRep, 
@@ -351,7 +416,8 @@ match_donor_dependency(RcptRev, DonorRep) ->
     Dep :: gitto_type:dependency().
 
 
-lookup_dependency(RcptRev, DonorRev) ->
+lookup_dependency(RcptRev, DonorRev) 
+    when is_integer(RcptRev), is_integer(DonorRev) ->
     Q = qlc:q([Dep || Dep = #g_dependency{} <- mnesia:table(g_dependency),
                       Dep.donor     =:= DonorRev,
                       Dep.recipient =:= RcptRev]),
@@ -453,6 +519,8 @@ dependency_to_donor_repository(#g_dependency{raw_data = Data}) ->
 raw_data_dependency_to_url({_Name,_Vsn,{git,Url,_RevDesc}}) ->
     Url.
 
+raw_data_dependency_to_revision_descriptor({_Name,_Vsn,{git,_Url,RevDesc}}) ->
+    RevDesc.
 
 %% @doc Extract a dependency list of the given repository.
 repository_dependencies_query(#g_repository{id = RepId}) ->
@@ -462,3 +530,29 @@ repository_dependencies_query(#g_repository{id = RepId}) ->
                   Dep.recipient =:= RxR.revision,
                   RxR.repository =:= RepId]).
     
+
+-spec latest_revision_number(RepId) -> RevId when
+    RepId :: gitto_type:repository_id(),
+    RevId :: gitto_type:repository_id().
+
+latest_revision_number(RepId) ->
+    lookup_first_parent_revision_by_date(RepId, last).
+
+
+
+-spec revision_to_repository(RevId) -> RepId | undefined when
+    RepId :: gitto_type:repository_id(),
+    RevId :: gitto_type:repository_id().
+
+revision_to_repository(RevId) ->
+    case gitto_db:select(revision_to_repository_query(RevId)) of
+        [] -> undefined;
+        [Rep|_] -> Rep
+    end.
+
+
+revision_to_repository_query(RevId) when is_integer(RevId) ->
+    qlc:q([X.repository 
+           || X=#g_repository_x_revision{} 
+                <- mnesia:table(g_repository_x_revision),
+           X.revision =:= RevId]).
