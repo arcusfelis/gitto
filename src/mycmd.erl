@@ -19,6 +19,8 @@ cmd_sync(Cmd, Args, Opts) ->
     P = open_port({spawn_executable, os:find_executable(Cmd)}, 
            Opts ++ [binary, use_stdio, stream, eof, {args, Args}, exit_status, 
                     stderr_to_stdout]),
+    error_logger:info_msg("Command ~p:~p opens the ~p port with ~n~p.", 
+                          [Cmd, Args, P, Opts]),
     cmd_receive(P, [], 0).
 
 cmd_receive(Port, Acc, OldExitStatus) ->
@@ -33,8 +35,11 @@ cmd_receive(Port, Acc, OldExitStatus) ->
             Data = lists:reverse(Acc),
             case OldExitStatus of
                 0 -> {ok, Data};
-                _ -> {error, {bad_exit_status, [{exit_status, OldExitStatus}
-                                               ,{data, Data}]}}
+                _ -> 
+                    error_logger:info_msg("Data from ~p port.~n~p", 
+                                  [Port, Data]),
+                    {error, {bad_exit_status, [{exit_status, OldExitStatus}
+                                              ,{data, Data}]}}
             end;
         Wtf ->
             error_logger:info_msg("Wtf recieved: ~p.", 

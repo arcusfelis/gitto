@@ -44,7 +44,7 @@
 
         parents   = []  :: [gitto_type:revision_id()],
         
-        is_compiled = false :: boolean()
+        status          :: downloaded | compiled
 }).
 
 

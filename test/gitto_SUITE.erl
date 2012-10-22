@@ -198,11 +198,17 @@ download_dependencies(Cfg, Rep) ->
         parse_and_save(Cfg, DonorRep)
      end
      || DonorRep <- DonorReps],
-    FixedDeps = [gitto_db:write(gitto_store:fix_dependency_donor(Dep))
+    FixedDeps = [update(Dep, gitto_store:fix_dependency_donor(Dep))
                  || Dep <- MissingDeps],
     io:format(user, "~nFixed deps: ~p.~nOld deps: ~p.~n", 
               [FixedDeps, MissingDeps]),
     ok.
+
+update(Old, Old) ->
+    Old;
+update(_Old, New) ->
+    gitto_db:write(New).
+
 
 
 create_example_repository(Url) ->
@@ -311,24 +317,47 @@ create_example_with_rebar_dependiencies_case(CommonTestCfg) ->
     download_dependencies(Cfg, Rep),
     Rev = gitto_store:latest_revision_number(gitto_store:to_id(Rep)),
     checkout_revision(Cfg, Rev),
-    compose(Cfg, Rev),
+    get_revision_dependencies(Cfg, Rev),
+    compose_revision(Cfg, Rev),
+    compile_revision(Cfg, Rev),
     ok.
 
 
-compose(Cfg, RevId) ->
+compose_revision(Cfg, RevId) ->
     io:format(user, "~nCompose revision #~p.~n", [RevId]),
     Deps = gitto_store:recursively_lookup_dependencies(RevId),
+    [gitto_exec:link_dependency(Cfg, Dep, RevId) || Dep <- Deps],
     io:format(user, "~nWanted deps ~p.~n", [Deps]),
+    ok.
+
+get_revision_dependencies(Cfg, RevId) ->
+    Deps = gitto_store:recursively_lookup_dependencies(RevId),
+    [begin
+         DonorRepId = gitto_store:dependency_donor_repository_id(Dep),
+         checkout_revision(Cfg, DonorRepId),
+         compose_revision(Cfg, DonorRepId) 
+     end
+     || Dep <- Deps],
     ok.
 
 
 checkout_revision(Cfg, RevId) ->
+    io:format(user, "~nCheckout revision #~p.~n", [RevId]),
     RepId = gitto_store:revision_to_repository(RevId),
     [erlang:error({cannot_get_revision_repository, RevId}) 
      || RepId =:= undefined],
     Rep = gitto_store:get_repository(RepId),
     Rev = gitto_store:get_revision(RevId),
     gitto_exec:checkout_revision(Cfg, Rep, Rev),
+    ok.
+
+compile_revision(Cfg, RevId) ->
+    io:format(user, "~nCheckout revision #~p.~n", [RevId]),
+    RepId = gitto_store:revision_to_repository(RevId),
+    [erlang:error({cannot_get_revision_repository, RevId}) 
+     || RepId =:= undefined],
+    Rev = gitto_store:get_revision(RevId),
+    gitto_exec:compile_revision(Cfg, Rev),
     ok.
 
 create_example_with_rebar_dependiencies(Url) ->
@@ -359,6 +388,19 @@ create_example_with_rebar_dependiencies(Url) ->
     ok = file:write_file(filename:join(Url1, "rebar.config"), Cfg1_1),
     ok = file:write_file(filename:join(Url2, "rebar.config"), Cfg2_1),
     ok = file:write_file(filename:join(Url3, "rebar.config"), Cfg3_1),
+
+    %% Write the app files.
+    App1SrcFN = filename:join([Url1, "src", "app1.app.src"]),
+    ok = filelib:ensure_dir(App1SrcFN),
+    ok = file:write_file(App1SrcFN, term_to_iolist(app_src(app1))),
+
+    App2SrcFN = filename:join([Url2, "src", "app2.app.src"]),
+    ok = filelib:ensure_dir(App2SrcFN),
+    ok = file:write_file(App2SrcFN, term_to_iolist(app_src(app2))),
+
+    App3SrcFN = filename:join([Url3, "src", "app3.app.src"]),
+    ok = filelib:ensure_dir(App3SrcFN),
+    ok = file:write_file(App3SrcFN, term_to_iolist(app_src(app3))),
 
     gitto_rep:init(Url1),
     gitto_rep:add_all(Url1),
@@ -401,3 +443,15 @@ ensure_dir(Dir) ->
     filelib:ensure_dir(filename:join(Dir, "sub_file")).
 
 
+app_src(App) ->
+    {application, App,
+     [{description, "Example."},
+      {vsn, git},
+      {modules, []},
+      {registered, []},
+      {env, []},
+      {applications, [kernel, stdlib]}]}.
+
+
+term_to_iolist(Term) ->
+    io_lib:format("~p.", [Term]).

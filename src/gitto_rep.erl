@@ -35,7 +35,7 @@ pull(RepURL, RepDir) ->
 %% git clone --shared
 checkout(BareRepDir, TargetRepDir, Revision) -> 
     mycmd:cmd("git", ["clone", "--shared", "--", BareRepDir, TargetRepDir]),
-    mycmd:cmd("git", ["chechout", "--", Revision],
+    mycmd:cmd("git", ["checkout", Revision],
               [{cd, TargetRepDir}]).
 
 

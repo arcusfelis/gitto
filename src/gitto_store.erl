@@ -28,7 +28,8 @@
          revision_hash/1,
          revision_literal_id/1,
          lookup_revision/1,
-         get_revision/1]).
+         get_revision/1,
+         downloading_completed/1]).
 
 -export([improper_revision/1,
          improper_revision/2]).
@@ -38,7 +39,10 @@
          dependency_to_donor_repository/1,
          fix_dependency_donor/1,
          lookup_dependencies/1,
-         recursively_lookup_dependencies/1]).
+         recursively_lookup_dependencies/1,
+         %% Getters.
+         dependency_donor_repository_id/1,
+         dependency_name/1]).
 
 -export([revision_date_index/2,
          repository_x_revision/3,
@@ -280,6 +284,10 @@ impoper_revision_to_proper_proplist(X = #g_improper_revision{}) ->
     ].
 
 
+downloading_completed(Rev = #g_revision{}) ->
+    gitto_db:write(Rev#g_revision{status = downloaded}).
+
+
 %% ------------------------------------------------------------------
 %% Person
 %% ------------------------------------------------------------------
@@ -407,6 +415,14 @@ match_donor_dependency(RcptRev, DonorRep)
                       Dep.donor     =:= DonorRR.revision,
                       Dep.recipient =:= RcptRev]),
     gitto_db:select1(Q).
+
+
+%% @doc Getter for the donor field.
+dependency_donor_repository_id(#g_dependency{donor = Rep}) ->
+    Rep.
+
+dependency_name(#g_dependency{name = Name}) ->
+    Name.
 
 
 %% @doc Lookup a relation beetween 2 revisions from different repositories.

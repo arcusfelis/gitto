@@ -19,6 +19,10 @@
 %% Checkout
 -export([checkout_revision/3]).
 
+%% Rebar
+-export([compile_revision/2,
+         link_dependency/3]).
+
 
 %% ------------------------------------------------------------------
 %% Download
@@ -35,9 +39,13 @@ local_repository_path(Cfg, Rep) ->
                   gitto_store:repository_literal_id(Rep)).
 
 
-local_revision_path(Cfg, Rep) ->
+local_revision_path(Cfg, Rev) ->
     filename:join(gitto_config:get_value(rev_reps_dir, Cfg),
-                  gitto_store:revision_literal_id(Rep)).
+                  gitto_store:revision_literal_id(Rev)).
+
+%% @doc Same, but gets a path of a subdirectory, i.e. `["deps", "cowboy"]'.
+local_revision_path(Cfg, Rev, Tail) ->
+    filename:join([local_revision_path(Cfg, Rev) | Tail]).
 
 
 -spec download_one_of([Addr], LocalPath) -> Addr | undefined
@@ -99,4 +107,27 @@ checkout_revision(Cfg, Rep, Rev) ->
     TargetRepDir = local_revision_path(Cfg, Rev),
     Revision     = gitto_store:revision_hash(Rev),
     gitto_rep:checkout(BareRepDir, TargetRepDir, Revision),
+    gitto_store:downloading_completed(Rev),
     ok.
+
+
+%% ------------------------------------------------------------------
+%% Rebar
+%% ------------------------------------------------------------------
+
+compile_revision(Cfg, Rev) ->
+    RevDir = local_revision_path(Cfg, Rev),
+    gitto_rebar:compile(RevDir),
+    ok.
+
+link_dependency(Cfg, Dep, LinkTargetRevId) ->
+    S = local_revision_path(Cfg, gitto_store:dependency_donor_repository_id(Dep)),
+    T = local_revision_path(Cfg, LinkTargetRevId, 
+                            ["deps", gitto_store:dependency_name(Dep)]),
+    %% Is the `deps' directory exist?
+    true = filelib:is_dir(S),
+    ok = filelib:ensure_dir(T),
+    Result = file:make_symlink(S, T),
+    error_logger:info_msg("Link ~p with ~p returns **~p**.~n", [S, T, Result]),
+    Result.
+
