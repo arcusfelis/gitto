@@ -1,5 +1,5 @@
 -module(gitto_config).
--export([example/0, get_value/2]).
+-export([example/0, get_value/2, lookup_value/2]).
 
 example() ->
     %% Where cloned repositories are stored.
@@ -11,5 +11,11 @@ example() ->
     ].
 
 
-get_value(Value, Cfg) ->
-    proplists:get_value(Value, Cfg).
+get_value(Key, Cfg) ->
+    proplists:get_value(Key, Cfg).
+
+lookup_value(Key, Cfg) ->
+    case proplists:get_value(Key, Cfg) of
+        undefined -> erlang:error({no_key, Key});
+        Value -> Value
+    end.

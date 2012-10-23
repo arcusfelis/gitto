@@ -95,17 +95,39 @@ cmd(Cmd, Args) ->
 versions(RepDir, FN, Flags) ->
     RevList = gitto_utils:parse_commit_hashes(whenchanged(RepDir, FN, Flags)),
     [{RevNum, 
-      try read_file(RepDir, binary_to_list(RevNum), FN)
-      catch error:{bad_exit_status, _} -> <<"">>
+      try {ok, read_file(RepDir, binary_to_list(RevNum), FN)}
+      catch error:{bad_exit_status, _} = Reason -> {error, Reason}
       end} || RevNum <- RevList].
+
+
+versions_and_files(RepDir, FNPattern, Flags) ->
+    RevList = gitto_utils:parse_commit_hashes_and_filenames(
+            whenchanged(RepDir, FNPattern, Flags)),
+    [{RevNum, 
+      FN,
+      %% TODO: binary_to_iolist or unicode:binary_to_characters?
+      try {ok, read_file(RepDir, binary_to_list(RevNum), binary_to_list(FN))}
+      catch error:{bad_exit_status, _} = Reason -> {error, Reason}
+      end} || {RevNum, FileNames} <- RevList,
+              FN <- FileNames].
 
 rebar_config_versions(RepDir, Flags) ->
     Configs = versions(RepDir, "rebar.config", Flags),
-    [{RevNum, proplists:get_value(deps, 
-                                  gitto_utils:consult_string(Data))}
-        || {RevNum, Data} <- Configs].
+    F = fun(Data) ->
+            proplists:get_value(deps, gitto_utils:consult_string(Data))
+            end,
+    [{RevNum, maybe_with(F, Result)}
+        || {RevNum, Result} <- Configs].
 
 
+app_config_versions(RepDir, Flags) ->
+    Configs = versions_and_files(RepDir, "src/*.app.src", Flags),
+    [{RevNum, FN, maybe_with(fun gitto_utils:consult_string/1, Data)}
+        || {RevNum, FN, Data} <- Configs].
+
+
+maybe_with(F, {ok, X}) -> {ok, F(X)};
+maybe_with(_F, {error, _} = E) -> E.
 
 
 -ifdef(TEST).

@@ -13,8 +13,9 @@
 %% First parent
 -export([first_parent/2]).
 
-%% Rebar config
--export([rebar_config_versions/2]).
+%% Configs
+-export([rebar_config_versions/2,
+         app_config_versions/2]).
 
 %% Checkout
 -export([checkout_revision/3]).
@@ -35,12 +36,12 @@ download(Cfg, Rep) ->
 
 
 local_repository_path(Cfg, Rep) ->
-    filename:join(gitto_config:get_value(bare_reps_dir, Cfg),
+    filename:join(gitto_config:lookup_value(bare_reps_dir, Cfg),
                   gitto_store:repository_literal_id(Rep)).
 
 
 local_revision_path(Cfg, Rev) ->
-    filename:join(gitto_config:get_value(rev_reps_dir, Cfg),
+    filename:join(gitto_config:lookup_value(rev_reps_dir, Cfg),
                   gitto_store:revision_literal_id(Rev)).
 
 %% @doc Same, but gets a path of a subdirectory, i.e. `["deps", "cowboy"]'.
@@ -97,6 +98,10 @@ rebar_config_versions(Cfg, Rep) ->
     LocalPath = local_repository_path(Cfg, Rep),
     gitto_rep:rebar_config_versions(LocalPath, ["--first-parent", "-m"]).
 
+app_config_versions(Cfg, Rep) ->
+    LocalPath = local_repository_path(Cfg, Rep),
+    gitto_rep:app_config_versions(LocalPath, ["-m"]).
+
 
 %% ------------------------------------------------------------------
 %% Checkout
@@ -117,6 +122,7 @@ checkout_revision(Cfg, Rep, Rev) ->
 
 compile_revision(Cfg, Rev) ->
     RevDir = local_revision_path(Cfg, Rev),
+    assert_directory(RevDir),
     gitto_rebar:compile(RevDir),
     ok.
 
@@ -125,9 +131,13 @@ link_dependency(Cfg, Dep, LinkTargetRevId) ->
     T = local_revision_path(Cfg, LinkTargetRevId, 
                             ["deps", gitto_store:dependency_name(Dep)]),
     %% Is the `deps' directory exist?
-    true = filelib:is_dir(S),
+    assert_directory(S),
     ok = filelib:ensure_dir(T),
     Result = file:make_symlink(S, T),
     error_logger:info_msg("Link ~p with ~p returns **~p**.~n", [S, T, Result]),
     Result.
 
+
+assert_directory(Dir) ->
+    [erlang:error({assert_directory, Dir}) || not filelib:is_dir(Dir)].
+    

@@ -1,5 +1,6 @@
 -module(gitto_utils).
--export([timestamp/0, consult_string/1, parse_commit_hashes/1]).
+-export([timestamp/0, consult_string/1, parse_commit_hashes/1,
+         parse_commit_hashes_and_filenames/1]).
 
 
 %% Now timestamp in seconds.
@@ -65,6 +66,22 @@ parse_commit_hashes(Str) ->
     [Hash || <<Hash:40/binary>> <- Lines, binary:first(Hash) =/= $:].
 
 
+parse_commit_hashes_and_filenames(Str) ->
+    Lines = lines(Str),
+    io:format(user, "Lines: ~p~n", [Lines]),
+    parse_commit_hashes_and_filenames_lines(Lines).
+
+parse_commit_hashes_and_filenames_lines([<<Hash:40/binary>>, <<>>|T]) ->
+    IsFile = fun(<<$:, _/binary>>) -> true; (_) -> false end,
+    {Files, T2} = lists:splitwith(IsFile, T),
+    FileNames = [extract_filename(X) || X <- Files],
+    [{Hash, FileNames} | parse_commit_hashes_and_filenames_lines(T2)];
+parse_commit_hashes_and_filenames_lines([<<>>]) ->
+    [].
+
+
+
+
 lines(Str) ->
     binary:split(Str, line_terminator(), [global]).
 
@@ -72,25 +89,45 @@ line_terminator() ->
     iolist_to_binary(io_lib:format("~n", [])).
     
 
+%% In: `:000000 100644 0000000... f2caaf3... A  rebar.config'.
+%% Out: `rebar.config'.
+extract_filename(<<_:39/binary, Name/binary>>) -> Name.
+
 
 -ifdef(TEST).                           
 -include_lib("eunit/include/eunit.hrl").
 
-parse_commit_hashes_test_() ->                                     
-Src = 
-% git whatchanged --format="%H" rebar.config
+test_data() ->
+% git whatchanged --format="%H" -- 'rebar.config*'
 <<"650c7db44349a18eb0794af33cc30837c0d1c536
 
-:100644 100644 f2caaf3... 22d6d5a... M  rebar.config
+:100644 100644 f2caaf3... 22d6d5a... M\trebar.config
 0b2417bae993f7ba51595e71d83dbd2e1c911484
 
-:000000 100644 0000000... f2caaf3... A  rebar.config">>,
+:000000 100644 0000000... f2caaf3... A\trebar.config
+:000000 100644 0000000... fffeerr... A\trebar.config.example
+">>.
+
+parse_commit_hashes_test_() ->                                     
+    Src = test_data(),
 
     Rec1 = <<"650c7db44349a18eb0794af33cc30837c0d1c536">>,
     Rec2 = <<"0b2417bae993f7ba51595e71d83dbd2e1c911484">>,
 
     ExpectedResult = [Rec1, Rec2],
     Result = ?MODULE:parse_commit_hashes(Src),
+    [?_assertEqual(Result, ExpectedResult)]. 
+
+parse_commit_hashes_and_filenames_test_() ->
+    Src = test_data(),
+
+    Rec1 = {<<"650c7db44349a18eb0794af33cc30837c0d1c536">>, 
+            [<<"rebar.config">>]},
+    Rec2 = {<<"0b2417bae993f7ba51595e71d83dbd2e1c911484">>, 
+            [<<"rebar.config">>, <<"rebar.config.example">>]},
+
+    ExpectedResult = [Rec1, Rec2],
+    Result = ?MODULE:parse_commit_hashes_and_filenames(Src),
     [?_assertEqual(Result, ExpectedResult)]. 
 
 -endif.

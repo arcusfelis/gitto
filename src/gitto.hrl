@@ -21,7 +21,10 @@
 
     is_dead :: boolean() | undefined,
     last_try_date :: gitto_type:timestamp() | undefined,
-    last_successful_connection_date :: gitto_type:timestamp() | undefined
+    last_successful_connection_date :: gitto_type:timestamp() | undefined,
+    %% Addresses with priority = 0 will be skipped, addresses with the maximum 
+    %% priority will be checked first.
+    priority = 1 :: non_neg_integer()
 }).
 
 -record(g_person, {
@@ -30,8 +33,19 @@
         email   :: binary()
 }).
 
+%% Analyzed `*.app.src' file.
+-record(g_application, {
+    id,
+    %% Name of the directory, `application_name.app.src'.
+    name,
+    description,
+    hash
+}).
+
 -record(g_revision, {
         id              :: gitto_type:revision_id(),
+        application_id  :: gitto_type:application_id(),
+
         %% Unique.
         commit_hash     :: gitto_type:hash(),
         author          :: gitto_type:person_id(),

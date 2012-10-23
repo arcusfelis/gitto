@@ -12,10 +12,12 @@
         create_example_branching_repository_case/0,
         download_case/0,
         database_case/0,
+        real_test_case/0,
         create_example_with_rebar_dependiencies_case/1,
         create_example_branching_repository_case/1,
         download_case/1,
-        database_case/1
+        database_case/1,
+        real_test_case/1
 ]).
 
 suite() ->
@@ -82,10 +84,10 @@ gitto_config(DataDir) ->
 %% Tests
 %% ----------------------------------------------------------------------
 groups() ->
-    [{main_group, [shuffle], [
+    [{main_group, [], [
         create_example_with_rebar_dependiencies_case,
         create_example_branching_repository_case,
-        download_case, database_case
+        download_case, database_case, real_test_case
     ]}].
 
 all() ->
@@ -103,6 +105,9 @@ create_example_branching_repository_case() ->
     [{require, common_conf, gitto_common_config}].
 
 database_case() ->
+    [{require, common_conf, gitto_common_config}].
+
+real_test_case() ->
     [{require, common_conf, gitto_common_config}].
 
 -include_lib("eunit/include/eunit.hrl").
@@ -174,11 +179,17 @@ analyse_dependencies(Cfg, Rep) ->
     Versions = lists:reverse(gitto_exec:rebar_config_versions(Cfg, Rep)),
     io:format(user, "~nVersions: ~p~n", [Versions]),
     
+    %% 2 nested generators, filter `{RevHash, undefined}'.
     Deps =
     [gitto_db:write(
         gitto_store:dependency(Dep, gitto_store:lookup_revision(RevHash)))
-        || {RevHash, Deps} <- Versions, Dep <- Deps],
+        || {RevHash, {ok, Deps}} <- Versions, Deps =/= undefined, Dep <- Deps],
     io:format(user, "~nDeps: ~p~n", [Deps]),
+    ok.
+
+analyse_app_config(Cfg, Rep) ->
+    Versions = lists:reverse(gitto_exec:app_config_versions(Cfg, Rep)),
+    io:format(user, "~napp.src versions: ~p~n", [Versions]),
     ok.
 
 
@@ -320,7 +331,41 @@ create_example_with_rebar_dependiencies_case(CommonTestCfg) ->
     get_revision_dependencies(Cfg, Rev),
     compose_revision(Cfg, Rev),
     compile_revision(Cfg, Rev),
+
     ok.
+
+
+real_test_case(CommonTestCfg) ->
+    Cfg = ?config(gitto_config, CommonTestCfg),
+    handle_project(Cfg, binary2, "/home/user/erlang/binary2"),
+    ok.
+
+handle_project(Cfg, ProjectName, RepDir) ->
+    io:format(user, "~nDownload project ~p from ~p.~n", [ProjectName, RepDir]),
+
+    Project = gitto_db:write(gitto_store:project([{name, ProjectName}])),
+    ProjectId = gitto_store:to_id(Project),
+    io:format(user, "~nProject: ~p~n", [Project]),
+
+    RepCon = [{project, ProjectId}],
+    Rep = gitto_db:write(gitto_store:repository(RepCon)),
+
+    AddrCon = [{repository, gitto_store:to_id(Rep)}, {url, RepDir}],
+    Addr = gitto_db:write(gitto_store:address(AddrCon)),
+
+    gitto_exec:download(Cfg, Rep),
+    parse_and_save(Cfg, Rep),
+    analyse_dependencies(Cfg, Rep),
+    analyse_app_config(Cfg, Rep),
+    download_dependencies(Cfg, Rep),
+    Rev = gitto_store:latest_revision_number(gitto_store:to_id(Rep)),
+    checkout_revision(Cfg, Rev),
+    get_revision_dependencies(Cfg, Rev),
+    compose_revision(Cfg, Rev),
+    compile_revision(Cfg, Rev),
+    ok.
+
+
 
 
 compose_revision(Cfg, RevId) ->
@@ -330,6 +375,8 @@ compose_revision(Cfg, RevId) ->
     io:format(user, "~nWanted deps ~p.~n", [Deps]),
     ok.
 
+
+%% @doc Copy and compile revision dependencies.
 get_revision_dependencies(Cfg, RevId) ->
     Deps = gitto_store:recursively_lookup_dependencies(RevId),
     [begin
@@ -341,6 +388,7 @@ get_revision_dependencies(Cfg, RevId) ->
     ok.
 
 
+%% @doc Copy revision specified files from the bare repository.
 checkout_revision(Cfg, RevId) ->
     io:format(user, "~nCheckout revision #~p.~n", [RevId]),
     RepId = gitto_store:revision_to_repository(RevId),
@@ -351,6 +399,7 @@ checkout_revision(Cfg, RevId) ->
     gitto_exec:checkout_revision(Cfg, Rep, Rev),
     ok.
 
+%% @doc Run `rebar compile' for the checked out application.
 compile_revision(Cfg, RevId) ->
     io:format(user, "~nCheckout revision #~p.~n", [RevId]),
     RepId = gitto_store:revision_to_repository(RevId),
@@ -359,6 +408,8 @@ compile_revision(Cfg, RevId) ->
     Rev = gitto_store:get_revision(RevId),
     gitto_exec:compile_revision(Cfg, Rev),
     ok.
+
+
 
 create_example_with_rebar_dependiencies(Url) ->
     %% Create a directory structure:
