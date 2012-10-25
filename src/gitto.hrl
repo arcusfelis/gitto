@@ -37,14 +37,15 @@
 -record(g_application, {
     id,
     %% Name of the directory, `application_name.app.src'.
-    name,
-    description,
-    hash
+    name        :: unicode:unicode_binary(),
+    description :: unicode:unicode_binary(),
+    version     :: term(),
+    hash        :: integer()
 }).
 
 -record(g_revision, {
         id              :: gitto_type:revision_id(),
-        application_id  :: gitto_type:application_id(),
+        application     :: gitto_type:application_id(),
 
         %% Unique.
         commit_hash     :: gitto_type:hash(),

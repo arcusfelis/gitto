@@ -134,91 +134,8 @@ download_case(CommonTestCfg) ->
 
     %% Test one: try to clone.
     gitto_exec:download(Cfg, Rep),
-    parse_and_save(Cfg, Rep).
+    gitto_command:parse_and_save(Cfg, Rep).
 
-parse_and_save(Cfg, Rep) ->
-    io:format(user, "~nStart parsing and saving: ~p~n", [Rep]),
-
-    %% Test two: try to extract metainformation.
-    Commits = lists:reverse(gitto_log:parse_commits(gitto_exec:log(Cfg, Rep))),
-    io:format(user, "~nReversed commits: ~p~n", [Commits]),
-    
-    FirstParentHashes = gitto_exec:first_parent(Cfg, Rep),
-    io:format(user, "~nFirst parents: ~p~n", [FirstParentHashes]),
-    
-    IsFirstParent = fun(Rev) -> 
-            Hash = gitto_store:revision_hash(Rev),
-            lists:member(Hash, FirstParentHashes)
-        end,
-
-    %% Author and committer will be added in the DB automatically with the
-    %% `improper_revision' call.
-    %%
-    %% Each Commit is a proplist.
-    %% Returns persisted revisions.
-    Revisions = 
-        [gitto_db:write(
-            gitto_store:revision(
-                gitto_store:improper_revision(Commit)))
-            || Commit <- Commits],
-    %% Create connectings beetween the repository and revisions.
-    RRs = 
-        [gitto_db:write(
-            gitto_store:repository_x_revision(Rep, Rev, IsFirstParent(Rev)))
-            || Rev <- Revisions],
-    %% Create date indexes.
-    RDIs = 
-        [gitto_db:write(gitto_store:revision_date_index(Rep, Rev))
-            || Rev <- Revisions],
-    io:format(user, "~nRevisions: ~p~n", [Revisions]),
-    io:format(user, "~nStop parsing and saving: ~p~n", [Rep]),
-
-    ok.
-
-analyse_dependencies(Cfg, Rep) ->
-    Versions = lists:reverse(gitto_exec:rebar_config_versions(Cfg, Rep)),
-    io:format(user, "~nVersions: ~p~n", [Versions]),
-    
-    %% 2 nested generators, filter `{RevHash, undefined}'.
-    Deps =
-    [gitto_db:write(
-        gitto_store:dependency(Dep, gitto_store:lookup_revision(RevHash)))
-        || {RevHash, {ok, Deps}} <- Versions, Deps =/= undefined, Dep <- Deps],
-    io:format(user, "~nDeps: ~p~n", [Deps]),
-    ok.
-
-analyse_app_config(Cfg, Rep) ->
-    Versions = lists:reverse(gitto_exec:app_config_versions(Cfg, Rep)),
-    io:format(user, "~napp.src versions: ~p~n", [Versions]),
-    ok.
-
-
-download_dependencies(Cfg, Rep) ->
-    %% Get first-level dependencies (deps of the current app, not deps of deps).
-    MissingDeps = gitto_store:missing_dependencies(Rep),
-    DonorRepsAndUdefs =
-        lists:usort([gitto_store:dependency_to_donor_repository(Dep) 
-                     || Dep <- MissingDeps]),
-    DonorReps =
-        [DonorRep || DonorRep <- DonorRepsAndUdefs, DonorRep =/= undefined],
-    io:format(user, "~nMissing deps: ~p~n from ~p.~n", 
-              [MissingDeps, DonorReps]),
-    %% TODO: Should be done parallelly.
-    [begin
-        gitto_exec:download(Cfg, DonorRep),
-        parse_and_save(Cfg, DonorRep)
-     end
-     || DonorRep <- DonorReps],
-    FixedDeps = [update(Dep, gitto_store:fix_dependency_donor(Dep))
-                 || Dep <- MissingDeps],
-    io:format(user, "~nFixed deps: ~p.~nOld deps: ~p.~n", 
-              [FixedDeps, MissingDeps]),
-    ok.
-
-update(Old, Old) ->
-    Old;
-update(_Old, New) ->
-    gitto_db:write(New).
 
 
 
@@ -323,92 +240,22 @@ create_example_with_rebar_dependiencies_case(CommonTestCfg) ->
     Addr = gitto_db:write(gitto_store:address(AddrCon)),
 
     gitto_exec:download(Cfg, Rep),
-    parse_and_save(Cfg, Rep),
-    analyse_dependencies(Cfg, Rep),
-    download_dependencies(Cfg, Rep),
+    gitto_command:parse_and_save(Cfg, Rep),
+    gitto_command:analyse_dependencies(Cfg, Rep),
+    gitto_command:download_dependencies(Cfg, Rep),
     Rev = gitto_store:latest_revision_number(gitto_store:to_id(Rep)),
-    checkout_revision(Cfg, Rev),
-    get_revision_dependencies(Cfg, Rev),
-    compose_revision(Cfg, Rev),
-    compile_revision(Cfg, Rev),
+    gitto_command:checkout_revision(Cfg, Rev),
+    gitto_command:get_revision_dependencies(Cfg, Rev),
+    gitto_command:compose_revision(Cfg, Rev),
+    gitto_command:compile_revision(Cfg, Rev),
 
     ok.
 
 
 real_test_case(CommonTestCfg) ->
     Cfg = ?config(gitto_config, CommonTestCfg),
-    handle_project(Cfg, binary2, "/home/user/erlang/binary2"),
+    gitto_command:handle_project(Cfg, binary2, "/home/user/erlang/binary2"),
     ok.
-
-handle_project(Cfg, ProjectName, RepDir) ->
-    io:format(user, "~nDownload project ~p from ~p.~n", [ProjectName, RepDir]),
-
-    Project = gitto_db:write(gitto_store:project([{name, ProjectName}])),
-    ProjectId = gitto_store:to_id(Project),
-    io:format(user, "~nProject: ~p~n", [Project]),
-
-    RepCon = [{project, ProjectId}],
-    Rep = gitto_db:write(gitto_store:repository(RepCon)),
-
-    AddrCon = [{repository, gitto_store:to_id(Rep)}, {url, RepDir}],
-    Addr = gitto_db:write(gitto_store:address(AddrCon)),
-
-    gitto_exec:download(Cfg, Rep),
-    parse_and_save(Cfg, Rep),
-    analyse_dependencies(Cfg, Rep),
-    analyse_app_config(Cfg, Rep),
-    download_dependencies(Cfg, Rep),
-    Rev = gitto_store:latest_revision_number(gitto_store:to_id(Rep)),
-    checkout_revision(Cfg, Rev),
-    get_revision_dependencies(Cfg, Rev),
-    compose_revision(Cfg, Rev),
-    compile_revision(Cfg, Rev),
-    ok.
-
-
-
-
-compose_revision(Cfg, RevId) ->
-    io:format(user, "~nCompose revision #~p.~n", [RevId]),
-    Deps = gitto_store:recursively_lookup_dependencies(RevId),
-    [gitto_exec:link_dependency(Cfg, Dep, RevId) || Dep <- Deps],
-    io:format(user, "~nWanted deps ~p.~n", [Deps]),
-    ok.
-
-
-%% @doc Copy and compile revision dependencies.
-get_revision_dependencies(Cfg, RevId) ->
-    Deps = gitto_store:recursively_lookup_dependencies(RevId),
-    [begin
-         DonorRepId = gitto_store:dependency_donor_repository_id(Dep),
-         checkout_revision(Cfg, DonorRepId),
-         compose_revision(Cfg, DonorRepId) 
-     end
-     || Dep <- Deps],
-    ok.
-
-
-%% @doc Copy revision specified files from the bare repository.
-checkout_revision(Cfg, RevId) ->
-    io:format(user, "~nCheckout revision #~p.~n", [RevId]),
-    RepId = gitto_store:revision_to_repository(RevId),
-    [erlang:error({cannot_get_revision_repository, RevId}) 
-     || RepId =:= undefined],
-    Rep = gitto_store:get_repository(RepId),
-    Rev = gitto_store:get_revision(RevId),
-    gitto_exec:checkout_revision(Cfg, Rep, Rev),
-    ok.
-
-%% @doc Run `rebar compile' for the checked out application.
-compile_revision(Cfg, RevId) ->
-    io:format(user, "~nCheckout revision #~p.~n", [RevId]),
-    RepId = gitto_store:revision_to_repository(RevId),
-    [erlang:error({cannot_get_revision_repository, RevId}) 
-     || RepId =:= undefined],
-    Rev = gitto_store:get_revision(RevId),
-    gitto_exec:compile_revision(Cfg, Rev),
-    ok.
-
 
 
 create_example_with_rebar_dependiencies(Url) ->

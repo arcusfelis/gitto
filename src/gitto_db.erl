@@ -87,6 +87,12 @@ up() ->
                 ,{attributes, record_info(fields, g_revision_date_index)}
                 ]),
 
+            mnesia:create_table(g_application,
+                [{type, ordered_set}
+                ,{disc_copies, [node()]}
+                ,{attributes, record_info(fields, g_application)}
+                ]),
+
             Res = mnesia:create_table(g_counter,
                 [{type, set}
                 ,{disc_copies, [node()]}
@@ -115,7 +121,7 @@ down() ->
 tables() ->
     [g_project, g_repository, g_address, g_person, 
      g_revision, g_dependency, g_tag, g_repository_x_revision,
-     g_revision_date_index, g_counter].
+     g_revision_date_index, g_application, g_counter].
 
 
 

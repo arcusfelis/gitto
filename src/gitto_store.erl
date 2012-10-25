@@ -29,7 +29,8 @@
          revision_literal_id/1,
          lookup_revision/1,
          get_revision/1,
-         downloading_completed/1]).
+         downloading_completed/1,
+         update_revision_application/2]).
 
 -export([improper_revision/1,
          improper_revision/2]).
@@ -48,6 +49,9 @@
          repository_x_revision/3,
          latest_revision_number/1,
          revision_to_repository/1]).
+
+-export([write_encoded_application/1]).
+
 
 to_id(Rec) ->
     erlang:element(2, Rec).
@@ -287,6 +291,14 @@ impoper_revision_to_proper_proplist(X = #g_improper_revision{}) ->
 downloading_completed(Rev = #g_revision{}) ->
     gitto_db:write(Rev#g_revision{status = downloaded}).
 
+
+update_revision_application(RevId, AppId) ->
+    case gitto_db:update_with(fun(X) -> 
+                X#g_revision{ application = AppId } 
+            end, g_revision, RevId) of
+    [R] -> R;
+    [] -> erlang:error({badarg, RevId, AppId})
+    end.
 
 %% ------------------------------------------------------------------
 %% Person
@@ -572,3 +584,75 @@ revision_to_repository_query(RevId) when is_integer(RevId) ->
            || X=#g_repository_x_revision{} 
                 <- mnesia:table(g_repository_x_revision),
            X.revision =:= RevId]).
+
+
+%% ------------------------------------------------------------------
+%% Application
+%% ------------------------------------------------------------------
+
+
+%% @doc It encodes the body of `app.src', writes (or find already written)
+%%      and returns its decoded version.
+-spec write_encoded_application(Encoded) -> Decoded when
+    Encoded :: gitto_type:encoded_application(),
+    Decoded :: gitto_type:decoded_application().
+
+write_encoded_application({application, _, _} = Encoded) ->
+    case lookup_encoded_application(Encoded) of
+        [Decoded|_] -> Decoded;
+        [] -> gitto_db:write(decode_application(Encoded))
+    end.
+
+%% ```
+%% {application,binary2,
+%%     [{description,[]},
+%%     {vsn,git},
+%%     {registered,[]},
+%%     {env,[]}]}]}}
+%% '''
+-spec decode_application(Encoded) -> Decoded when
+    Encoded :: gitto_type:encoded_application(),
+    Decoded :: gitto_type:decoded_application().
+
+decode_application({application, Name, PL} = X) when is_atom(Name) ->
+    Description = proplists:get_value(description, PL),
+    Version = proplists:get_value(vsn, PL),
+    #g_application{
+        name = Name,
+        description = maybe_to_unicode_binary(Description),
+        version = Version,
+        hash = erlang:phash2(X)
+    }.
+
+
+-spec compare_applications(Decoded, Decoded) -> boolean() when
+    Decoded :: gitto_type:decoded_application().
+
+compare_applications(X, Y) ->
+    X#g_application{id = undefined} 
+    =:=
+    Y#g_application{id = undefined}.
+
+
+-spec lookup_encoded_application(Encoded) -> [Decoded] when
+    Encoded :: gitto_type:encoded_application(),
+    Decoded :: gitto_type:decoded_application().
+    
+lookup_encoded_application({application, _, _} = X) ->
+    A = decode_application(X),
+    Q = lookup_encoded_application_query(X),
+    [App || App <- gitto_db:select(Q), compare_applications(A, App)].
+
+
+-spec lookup_encoded_application_query(Encoded) -> Query when
+    Encoded :: gitto_type:encoded_application(),
+    Query   :: gitto_type:qlc_query().
+
+lookup_encoded_application_query({application, _, _} = X) ->
+    Hash = erlang:phash2(X),
+    qlc:q([A || A=#g_application{} <- mnesia:table(g_application), 
+                A.hash =:= Hash]).
+
+
+maybe_to_unicode_binary(undefined) -> undefined;
+maybe_to_unicode_binary(S) -> unicode:characters_to_binary(S).
