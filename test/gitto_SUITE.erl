@@ -20,6 +20,8 @@
         real_test_case/1
 ]).
 
+-compile([{parse_transform, lager_transform}]).
+
 suite() ->
     [{timetrap, {minutes, 3}}].
 
@@ -36,10 +38,11 @@ end_per_group(_Group, _Config) ->
     ok.
 
 init_per_suite(Config) ->
+    lager:start(),
     %% We should really use priv_dir here, but as we are for-once creating
     %% files we will later rely on for fetching, this is ok I think.
     Directory = ?config(data_dir, Config),
-    error_logger:info_msg("Data directory: ~s~n", [Directory]),
+    lager:info("Data directory: ~s~n", [Directory]),
     ok = ensure_dir(Directory),
     file:set_cwd(Directory),
     GittoConfig = gitto_config(Directory),
@@ -118,7 +121,7 @@ download_case(CommonTestCfg) ->
     
     Project = gitto_db:write(gitto_store:project([{name, download_test}])),
     ProjectId = gitto_store:to_id(Project),
-    io:format(user, "~nProject: ~p~n", [Project]),
+    lager:info("Project: ~p~n", [Project]),
 
     RepCon = [{project, ProjectId}],
     Rep = gitto_db:write(gitto_store:repository(RepCon)),
@@ -140,7 +143,7 @@ download_case(CommonTestCfg) ->
 
 
 create_example_repository(Url) ->
-    error_logger:info_msg("Create an example repository: ~ts", [Url]),
+    lager:info("Create an example repository: ~ts", [Url]),
     ok = ensure_dir(Url),
     ok = file:write_file(filename:join(Url, "README"), 
                          "This is am example repository."),
@@ -157,7 +160,7 @@ create_example_branching_repository_case(CommonTestCfg) ->
     
     Project = gitto_db:write(gitto_store:project([{name, branching_test}])),
     ProjectId = gitto_store:to_id(Project),
-    io:format(user, "~nProject: ~p~n", [Project]),
+    lager:info("Project: ~p~n", [Project]),
 
     RepCon = [{project, ProjectId}],
     Rep = gitto_db:write(gitto_store:repository(RepCon)),
@@ -179,7 +182,7 @@ create_example_branching_repository(Url) ->
     Url1 = filename:join(Url, "fork1"),
     Url2 = filename:join(Url, "fork2"),
 
-    error_logger:info_msg("Create an example repository: ~ts~n", [Url1]),
+    lager:info("Create an example repository: ~ts~n", [Url1]),
 
     ok = ensure_dir(Url),
     ok = ensure_dir(Url1),
@@ -191,8 +194,7 @@ create_example_branching_repository(Url) ->
     gitto_rep:commit(Url1, "Commit 1."),
     gitto_rep:tag(Url1, "C1"),
 
-    error_logger:info_msg("Fork an example repository: ~ts => ~ts", 
-                          [Url1, Url2]),
+    lager:info("Fork an example repository: ~ts => ~ts", [Url1, Url2]),
     gitto_rep:clone(Url1, Url2),
 
     ok = file:write_file(filename:join(Url1, "README"), "Version 2."),
@@ -225,7 +227,7 @@ create_example_with_rebar_dependiencies_case(CommonTestCfg) ->
     
     Project = gitto_db:write(gitto_store:project([{name, deps_test}])),
     ProjectId = gitto_store:to_id(Project),
-    io:format(user, "~nProject: ~p~n", [Project]),
+    lager:info("Project: ~p~n", [Project]),
 
     RepCon = [{project, ProjectId}],
     Rep = gitto_db:write(gitto_store:repository(RepCon)),
@@ -267,9 +269,9 @@ create_example_with_rebar_dependiencies(Url) ->
     Url2 = filename:join(Url, "app2"),
     Url3 = filename:join(Url, "app3"),
 
-    error_logger:info_msg("Create an example repository: ~ts~n", [Url1]),
-    error_logger:info_msg("Create an example repository: ~ts~n", [Url2]),
-    error_logger:info_msg("Create an example repository: ~ts~n", [Url3]),
+    lager:info("Create an example repository: ~ts~n", [Url1]),
+    lager:info("Create an example repository: ~ts~n", [Url2]),
+    lager:info("Create an example repository: ~ts~n", [Url3]),
 
     ok = ensure_dir(Url),
     ok = ensure_dir(Url1),

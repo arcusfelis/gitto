@@ -115,6 +115,19 @@
         name            :: unicode:unicode_binary()
 }).
 
+
+-record(g_module, {
+        id      :: gitto_type:module_id(),
+        name    :: atom()
+}).
+
+-record(g_function, {
+        id      :: gitto_type:function_id(),
+        name    :: atom(),
+        arity   :: 1 .. 255,
+        module  :: gitto_type:module_id()
+}).
+
 %% [erlang-questions] Efficient way to select a range of data between 2 values?
 %% http://erlang.org/pipermail/erlang-questions/2009-August/046253.html
 %%

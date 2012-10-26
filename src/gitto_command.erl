@@ -1,16 +1,16 @@
 -module(gitto_command).
--compile([export_all]).
+-compile([export_all, {parse_transform, lager_transform}]).
 
 
 parse_and_save(Cfg, Rep) ->
-    io:format(user, "~nStart parsing and saving: ~p~n", [Rep]),
+    lager:info("Start parsing and saving: ~p~n", [Rep]),
 
     %% Test two: try to extract metainformation.
     Commits = lists:reverse(gitto_log:parse_commits(gitto_exec:log(Cfg, Rep))),
-    io:format(user, "~nReversed commits: ~p~n", [Commits]),
+    lager:info("Reversed commits: ~p~n", [Commits]),
     
     FirstParentHashes = gitto_exec:first_parent(Cfg, Rep),
-    io:format(user, "~nFirst parents: ~p~n", [FirstParentHashes]),
+    lager:info("First parents: ~p~n", [FirstParentHashes]),
     
     IsFirstParent = fun(Rev) -> 
             Hash = gitto_store:revision_hash(Rev),
@@ -36,28 +36,28 @@ parse_and_save(Cfg, Rep) ->
     RDIs = 
         [gitto_db:write(gitto_store:revision_date_index(Rep, Rev))
             || Rev <- Revisions],
-    io:format(user, "~nRevisions: ~p~n", [Revisions]),
-    io:format(user, "~nStop parsing and saving: ~p~n", [Rep]),
+    lager:info("Revisions: ~p~n", [Revisions]),
+    lager:info("Stop parsing and saving: ~p~n", [Rep]),
 
     ok.
 
 analyse_dependencies(Cfg, Rep) ->
     Versions = lists:reverse(gitto_exec:rebar_config_versions(Cfg, Rep)),
-    io:format(user, "~nVersions: ~p~n", [Versions]),
+    lager:info("Versions: ~p~n", [Versions]),
     
     %% 2 nested generators, filter `{RevHash, undefined}'.
     Deps =
     [gitto_db:write(
         gitto_store:dependency(Dep, gitto_store:lookup_revision(RevHash)))
         || {RevHash, {ok, Deps}} <- Versions, Deps =/= undefined, Dep <- Deps],
-    io:format(user, "~nDeps: ~p~n", [Deps]),
+    lager:info("Deps: ~p~n", [Deps]),
     ok.
 
 
 %% @doc Load `app.src' for all revisions of the repository.
 analyse_app_config(Cfg, Rep) ->
     Versions = lists:reverse(gitto_exec:app_config_versions(Cfg, Rep)),
-    io:format(user, "~napp.src versions: ~p.~n", [Versions]),
+    lager:info("app.src versions: ~p.~n", [Versions]),
     RevWrittenDecodedApps = 
     [{gitto_store:lookup_revision(RevHash),
       gitto_store:write_encoded_application(App)}
@@ -69,10 +69,10 @@ analyse_app_config(Cfg, Rep) ->
      || {RevId, App} <- RevWrittenDecodedApps],
 
 
-    io:format(user, "~napp.src written versions: ~p.~n", 
+    lager:info("app.src written versions: ~p.~n", 
               [RevWrittenDecodedApps]),
 
-    io:format(user, "~nSet application for next revisions: ~p.~n", 
+    lager:info("~nSet application for next revisions: ~p.~n", 
               [UpdatedRevisions]),
     ok.
 
@@ -85,7 +85,7 @@ download_dependencies(Cfg, Rep) ->
                      || Dep <- MissingDeps]),
     DonorReps =
         [DonorRep || DonorRep <- DonorRepsAndUdefs, DonorRep =/= undefined],
-    io:format(user, "~nMissing deps: ~p~n from ~p.~n", 
+    lager:info("Missing deps: ~p~n from ~p.~n", 
               [MissingDeps, DonorReps]),
     %% TODO: Should be done parallelly.
     [begin
@@ -95,7 +95,7 @@ download_dependencies(Cfg, Rep) ->
      || DonorRep <- DonorReps],
     FixedDeps = [update(Dep, gitto_store:fix_dependency_donor(Dep))
                  || Dep <- MissingDeps],
-    io:format(user, "~nFixed deps: ~p.~nOld deps: ~p.~n", 
+    lager:info("Fixed deps: ~p.~nOld deps: ~p.~n", 
               [FixedDeps, MissingDeps]),
     ok.
 
@@ -107,11 +107,11 @@ update(_Old, New) ->
 
 
 handle_project(Cfg, ProjectName, RepDir) ->
-    io:format(user, "~nDownload project ~p from ~p.~n", [ProjectName, RepDir]),
+    lager:info("Download project ~p from ~p.~n", [ProjectName, RepDir]),
 
     Project = gitto_db:write(gitto_store:project([{name, ProjectName}])),
     ProjectId = gitto_store:to_id(Project),
-    io:format(user, "~nProject: ~p~n", [Project]),
+    lager:info("Project: ~p~n", [Project]),
 
     RepCon = [{project, ProjectId}],
     Rep = gitto_db:write(gitto_store:repository(RepCon)),
@@ -135,10 +135,10 @@ handle_project(Cfg, ProjectName, RepDir) ->
 
 
 compose_revision(Cfg, RevId) ->
-    io:format(user, "~nCompose revision #~p.~n", [RevId]),
+    lager:info("Compose revision #~p.~n", [RevId]),
     Deps = gitto_store:recursively_lookup_dependencies(RevId),
     [gitto_exec:link_dependency(Cfg, Dep, RevId) || Dep <- Deps],
-    io:format(user, "~nWanted deps ~p.~n", [Deps]),
+    lager:info("Wanted deps ~p.~n", [Deps]),
     ok.
 
 
@@ -156,7 +156,7 @@ get_revision_dependencies(Cfg, RevId) ->
 
 %% @doc Copy revision specified files from the bare repository.
 checkout_revision(Cfg, RevId) ->
-    io:format(user, "~nCheckout revision #~p.~n", [RevId]),
+    lager:info("Checkout revision #~p.~n", [RevId]),
     RepId = gitto_store:revision_to_repository(RevId),
     [erlang:error({cannot_get_revision_repository, RevId}) 
      || RepId =:= undefined],
@@ -167,7 +167,7 @@ checkout_revision(Cfg, RevId) ->
 
 %% @doc Run `rebar compile' for the checked out application.
 compile_revision(Cfg, RevId) ->
-    io:format(user, "~nCheckout revision #~p.~n", [RevId]),
+    lager:info("Checkout revision #~p.~n", [RevId]),
     RepId = gitto_store:revision_to_repository(RevId),
     [erlang:error({cannot_get_revision_repository, RevId}) 
      || RepId =:= undefined],

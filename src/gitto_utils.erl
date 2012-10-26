@@ -1,6 +1,7 @@
 -module(gitto_utils).
 -export([timestamp/0, consult_string/1, parse_commit_hashes/1,
          parse_commit_hashes_and_filenames/1]).
+-compile({parse_transform, lager_transform}).
 
 
 %% Now timestamp in seconds.
@@ -18,7 +19,6 @@ consult_string(Bin) when is_binary(Bin) ->
 consult_string(Str) ->
     {ok, Tokens, _} = erl_scan:string(Str),
     Groups = token_groups(fun is_dot/1, Tokens),
-%   io:format("~p", [Groups]),
     [ok_value(erl_parse:parse_term(Group)) || Group <- Groups].
 
 is_dot({dot, _}) -> true;
@@ -68,7 +68,7 @@ parse_commit_hashes(Str) ->
 
 parse_commit_hashes_and_filenames(Str) ->
     Lines = lines(Str),
-    io:format(user, "Lines: ~p~n", [Lines]),
+    lager:info("Lines: ~p~n", [Lines]),
     parse_commit_hashes_and_filenames_lines(Lines).
 
 parse_commit_hashes_and_filenames_lines([<<Hash:40/binary>>, <<>>|T]) ->
