@@ -6,7 +6,7 @@
 
 %% Now timestamp in seconds.
 timestamp() ->
-    {Mega,Sec,_Micro} = erlang:now(),
+    {Mega,Sec,_Micro} = os:timestamp(),
     Mega*1000000+Sec.
 
 

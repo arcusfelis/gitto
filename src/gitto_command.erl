@@ -41,6 +41,7 @@ parse_and_save(Cfg, Rep) ->
 
     ok.
 
+
 analyse_dependencies(Cfg, Rep) ->
     Versions = lists:reverse(gitto_exec:rebar_config_versions(Cfg, Rep)),
     lager:info("Versions: ~p~n", [Versions]),
@@ -130,8 +131,6 @@ handle_project(Cfg, ProjectName, RepDir) ->
     compose_revision(Cfg, Rev),
     compile_revision(Cfg, Rev),
     ok.
-
-
 
 
 compose_revision(Cfg, RevId) ->

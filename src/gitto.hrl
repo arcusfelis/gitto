@@ -148,3 +148,47 @@
         table           :: gitto_type:table_name(),
         last_id         :: gitto_type:dependence_id()
 }).
+
+
+%% ```
+%% [{<<"type">>,<<"repo">>},
+%% {<<"created">>,<<"2011-03-22T08:29:56-07:00">>},
+%% {<<"followers">>,89},
+%% {<<"owner">>,<<"erlang-unicode">>},
+%% {<<"username">>,<<"erlang-unicode">>},
+%% {<<"created_at">>,<<"2011-03-22T08:29:56-07:00">>},
+%% {<<"pushed_at">>,<<"2012-10-21T13:19:37-07:00">>},
+%% {<<"pushed">>,<<"2012-10-21T13:19:37-07:00">>},
+%% {<<"forks">>,4},
+%% {<<"description">>,
+%%  <<"Unicode eXtention for Erlang (Strings, Collation)">>},
+%% {<<"fork">>,false},
+%% {<<"size">>,124},
+%% {<<"name">>,<<"ux">>},
+%% {<<"private">>,false},
+%% {<<"watchers">>,89},
+%% {<<"language">>,<<"Erlang">>}]
+%% '''
+
+-record(gh_repository, {
+        id          :: gitto_type:gh_repository_id(),
+        name        :: unicode:unicode_binary(),
+        description :: unicode:unicode_binary(),
+        owner       :: unicode:unicode_binary(),
+        created     :: gitto_type:timestamp(),
+        pushed      :: gitto_type:timestamp(),
+        forks       :: non_neg_integer(),
+        watchers    :: non_neg_integer(),
+        is_fork     :: boolean(),
+        %% Size in KB.
+        size        :: non_neg_integer(),
+
+        template          :: apps | src | undefined,
+        has_rebar_config  :: boolean(),
+        has_c_src_dir     :: boolean(),
+        has_rel_dir       :: boolean(),
+        has_priv_dir      :: boolean(),
+        has_test_dir      :: boolean()
+}).
+
+

@@ -28,6 +28,7 @@ suite() ->
 %% Setup/Teardown
 %% ----------------------------------------------------------------------
 init_per_group(main_group, Config) ->
+    lager:start(),
     init_locations(Config);
 init_per_group(_Group, Config) ->
     Config.
@@ -38,7 +39,6 @@ end_per_group(_Group, _Config) ->
     ok.
 
 init_per_suite(Config) ->
-    lager:start(),
     %% We should really use priv_dir here, but as we are for-once creating
     %% files we will later rely on for fetching, this is ok I think.
     Directory = ?config(data_dir, Config),
