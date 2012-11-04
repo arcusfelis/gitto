@@ -172,23 +172,34 @@
 
 -record(gh_repository, {
         id          :: gitto_type:gh_repository_id(),
+        fullname    :: gitto_type:gh_repository_fullname(),
         name        :: unicode:unicode_binary(),
         description :: unicode:unicode_binary(),
         owner       :: unicode:unicode_binary(),
         created     :: gitto_type:timestamp(),
         pushed      :: gitto_type:timestamp(),
-        forks       :: non_neg_integer(),
+        forks_count :: non_neg_integer(),
+        %% Pairs `{OwnerLogin, RepName}'.
+        forks        = [] :: [gitto_type:gh_repository_fullname()],
+        dependencies = [] :: [gitto_type:gh_repository_fullname()],
         watchers    :: non_neg_integer(),
         is_fork     :: boolean(),
         %% Size in KB.
         size        :: non_neg_integer(),
 
         template          :: apps | src | undefined,
-        has_rebar_config  :: boolean(),
         has_c_src_dir     :: boolean(),
         has_rel_dir       :: boolean(),
         has_priv_dir      :: boolean(),
-        has_test_dir      :: boolean()
-}).
+        has_test_dir      :: boolean(),
 
+        
+        %% The name of the repository, from which this repository is forked.
+        parent_fullname   :: gitto_type:gh_repository_fullname(),
+        %% Root repository.
+        source_fullname   :: gitto_type:gh_repository_fullname(),
+
+        %% If there is no rebar.config, than rebar_config is undefined.
+        rebar_config
+}).
 

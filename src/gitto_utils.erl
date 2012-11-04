@@ -24,7 +24,8 @@ consult_string(Str) ->
 is_dot({dot, _}) -> true;
 is_dot(_) -> false.
 
-ok_value({ok, X}) -> X.
+ok_value({ok, X}) -> X;
+ok_value({error, Reason}) -> error(Reason).
 
 
 %% @doc Split the `List' with `DelimFn'.
