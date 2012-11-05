@@ -7,7 +7,26 @@
         fullname,
         update_parents_fn,
         source_pair,
-        parent_pair}).
+        parent_pair,
+        rep_info_json
+        }).
+
+-record(import_state, {
+        sorted_reps :: [#gh_repository{}],
+        parent_dict :: dict(), % FullName => ParentFullName | undefined
+        source_dict :: dict(), % FullName => SourceFullName | undefined
+        bad_reps_set
+}).
+
+import_state() ->
+    #import_state{
+        sorted_reps = [],
+        parent_dict = dict:new(),
+        source_dict = dict:new(),
+        bad_reps_set = sets:new()
+   }.
+
+-type gh_connection() :: term().
 
 run_import() ->
     Con = create_gh_connector(),
@@ -29,6 +48,61 @@ run_import() ->
     %% Join them into giant sorted list (12k+ elements).
     SortedAddr2RepPairList = lists:foldl(F2, [], SortedAddr2RepPairLists),
 
+    State1 = analyse_json_reps(SortedAddr2RepPairList, Con, import_state()),
+    analyse_deps(Con, State1).
+
+analyse_deps(Con, State=#import_state{}) ->
+    #import_state{sorted_reps = SortedRecs,
+                  parent_dict = ParentDict,
+                  source_dict = SourceDict,
+                  bad_reps_set = BadRepSet} = State,
+
+    IgnoreRepNames = sets:union(BadRepSet,
+                                fullname_set(SortedRecs)),
+    %% Get a usorted list of dependencies' names.
+    case non_downloaded_dependencies(IgnoreRepNames, SortedRecs) of
+        [] ->
+            State;
+        [_|_] = NonDownloadedDeps ->
+        lager:info("Deps ~p are not downloaded yet.", [NonDownloadedDeps]),
+        %% Get details as JSON for each fullname in `NonDownloadedDeps'.
+        DepRepsDetails = plists:map(download_detail_rep_info(Con), 
+                                    NonDownloadedDeps, {processes, 10}),
+
+        %% Rep, its source and parent.
+        AnotherSortedPairs = select_reps_from_details(DepRepsDetails), 
+        BadRepSet2 = sets:union(BadRepSet,
+                                filter_bad_reps_set(DepRepsDetails)),
+        State2 = #import_state{sorted_reps = SortedRecs,
+                               parent_dict = ParentDict,
+                               source_dict = SourceDict,
+                               bad_reps_set = BadRepSet2},
+        State3 = analyse_json_reps(AnotherSortedPairs, Con, State2),
+        analyse_deps(Con, State3)
+    end.
+
+
+%% @doc Read info from `{FullName, RepJSON}' pairs.
+-spec analyse_json_reps(SortedAddr2RepPairList, Con, State) -> State when
+    SortedAddr2RepPairList :: [{FullName, RepJSON}],
+    FullName :: gitto_type:gh_repository_fullname(), 
+    RepJSON :: term(),
+    Con :: gh_connection(),
+    State :: #import_state{}.
+
+analyse_json_reps([], _Con, State) ->
+    State;
+analyse_json_reps(SortedPairs, Con, State) ->
+    %% Drop already downloaded pairs.
+    NewSortedPairs = lists2:ukeysublist(1, SortedPairs,
+                                        #gh_repository.fullname, 
+                                        State#import_state.sorted_reps),
+    analyse_new_json_reps(NewSortedPairs, Con, State).
+
+
+analyse_new_json_reps([], _Con, State) ->
+    State;
+analyse_new_json_reps(NewSortedPairs, Con, State) ->
     F3 =
         fun({RepName, X}) ->
             analyse_dependencies(
@@ -36,16 +110,24 @@ run_import() ->
                     query_and_fill_app_structure(Con, 
                          fill_gh_repository(#gh_repository{fullname = RepName}, X))))
         end,
-    SortedRecs = plists:map(F3, SortedAddr2RepPairList, {processes, 10}),
+    SortedRecs0 = plists:map(F3, NewSortedPairs, {processes, 10}),
 
-    ParentDict = parent_repository_dict(SortedRecs),
+    %% Merge with `State'.
+    SortedRecs1 = lists:ukeymerge(#gh_repository.fullname,
+                                  SortedRecs0,
+                                  State#import_state.sorted_reps),
+
+    ParentDict = dict:merge(fun(_K, X, _Y) -> X end, %% delete duplicates.
+                            State#import_state.parent_dict, 
+                            parent_repository_dict(SortedRecs1)),
+
     %% Build a dict to lookup a source (root) repositories.
     %% Use `ParentDict' as a lookup table, while building this dict.
     SourceDict =
-    source_repository_dict(ParentDict, SortedRecs),
+    source_repository_dict(ParentDict, SortedRecs1),
 
     %% There are few repositories, those are not analysed yet.
-    SortedRecs2 = lists:map(set_parent_fn(ParentDict), SortedRecs),
+    SortedRecs2 = lists:map(set_parent_fn(ParentDict), SortedRecs1),
     SortedRecs3 = lists:map(set_source_fn(SourceDict), SortedRecs2),
 
     %% These repositories have unknown parents.
@@ -53,32 +135,28 @@ run_import() ->
         [FullName 
          || #gh_repository{fullname = FullName,
                            is_fork = true,
-                           parent_fullname = undefined} <- SortedRecs],
+                           parent_fullname = undefined} <- SortedRecs3],
+    lager:info("Parents of ~p are not downloaded yet.", [LostChildren]),
 
-    MoreInfoForLostChildren = plists:map(download_info_about_lost_child(Con), 
-                                         LostChildren, {processes, 10}),
-    %% This dict is used for setting `source_fullname' and `parent_fullname' fields.
-    Child2ParentSetter = dict:from_list([{FullName, F}
-                                         || #detail_rep_info{fullname = FullName,
-                                                             update_parents_fn = F} 
-                                            <- MoreInfoForLostChildren]),
+    LostChildrenDetails = plists:map(download_detail_rep_info(Con), 
+                                     LostChildren, {processes, 10}),
 
-    %% Few new repositories can be extracted.
-    AnotherSortedAddr2RepPairLists = select_parents_from_details(MoreInfoForLostChildren), 
-
-    %% TODO: Join AnotherSortedAddr2RepPairLists with SortedRecs3.
+    %% This dict is used for setting `source_fullname' and 
+    %% `parent_fullname' fields.
+    Child2ParentSetter = child2parent_setter(LostChildrenDetails),
 
     %% Update parents for list children.
     SortedRecs4 = lists:map(update_parent_fn(Child2ParentSetter), SortedRecs3),
 
-    FullNames = fullname_set(SortedRecs3),
-
-    NonDownloadedDeps =
-    non_downloaded_dependencies(FullNames, SortedRecs3),
-
-    lager:info("Parents of ~p are not downloaded yet.", [LostChildren]),
-    lager:info("Deps ~p are not downloaded yet.", [NonDownloadedDeps]),
-    SortedRecs4.
+    %% Few new repositories can be extracted.
+    AnotherSortedPairs = select_parents_from_details(LostChildrenDetails), 
+    BadOrdRepList = sets:union(State#import_state.bad_reps_set,
+                               filter_bad_reps_set(LostChildrenDetails)),
+    State2 = #import_state{sorted_reps = SortedRecs4,
+                           parent_dict = ParentDict,
+                           source_dict = SourceDict,
+                           bad_reps_set = BadOrdRepList},
+    analyse_json_reps(AnotherSortedPairs, Con, State2).
 
 
 set_parent_fn(ParentDict) ->
@@ -101,8 +179,9 @@ set_source_fn(SourceDict) ->
 
 
 keywords() ->
-    ["erlang", "library", "application"] ++
-    [[X] || X <- lists:seq($a, $b) ++ lists:seq($0, $9)].
+%   ["erlang", "library", "application"] ++
+%   [[X] || X <- lists:seq($a, $b) ++ lists:seq($0, $9)].
+    ["etorrent"].
 
 
 fill_gh_repository(Rec, [{K, V}|PL]) ->
@@ -113,7 +192,7 @@ fill_gh_repository(Rec, [{K, V}|PL]) ->
             <<"description">> ->
                 Rec#gh_repository{description = V};
             <<"owner">> ->
-                Rec#gh_repository{owner = V};
+                Rec#gh_repository{owner = person_login(V)};
             <<"created">> ->
                 Rec#gh_repository{created = datetime_to_timestamp(V)};
             <<"pushed">> ->
@@ -231,10 +310,17 @@ parent_repository_proplist([]) ->
 repository_fullname(#gh_repository{fullname = FullName}) ->
     FullName.
 
+
 repository_fullname_json(Rep) ->
     Owner = person_login(proplists:get_value(<<"owner">>, Rep)),
     Name  = proplists:get_value(<<"name">>, Rep),
     {Owner, Name}.
+
+
+maybe_repository_fullname_json(undefined) ->
+    undefined;
+maybe_repository_fullname_json(Rep) ->
+    repository_fullname_json(Rep).
     
 
 person_login(OwnerLogin) when is_binary(OwnerLogin) ->
@@ -355,39 +441,95 @@ update_parent_fn(Child2ParentSetter) ->
             {ok, F} -> F(Rec);
             %% Something is wrong!
             error -> 
-                lager:error("FIXME: Cannot select an updater for ~p.", [Child2ParentSetter]),
+                lager:error("FIXME: Cannot select an updater for ~p.",
+                            [Child2ParentSetter]),
                 Rec
+        end;
+       (Rec) -> Rec
+    end.
+
+
+download_detail_rep_info(Con) ->
+    fun({OwnerLogin, RepName} = FullName) ->
+        case gh_api:get_repository(Con, OwnerLogin, RepName) of
+        {ok, undefined} ->
+            {error, {gh_error, FullName, 404}};
+        {ok, DetailRepInfo} ->
+            ParentRepJSON = proplists:get_value(<<"parent">>, DetailRepInfo),
+            SourceRepJSON = proplists:get_value(<<"source">>, DetailRepInfo),
+            SourceFullName = maybe_repository_fullname_json(SourceRepJSON),
+            ParentFullName = maybe_repository_fullname_json(ParentRepJSON),
+            %% Function for updating.
+            F = fun(Rec=#gh_repository{}) ->
+                    Rec#gh_repository{
+                        source_fullname = SourceFullName,
+                        parent_fullname = ParentFullName}
+                end,
+
+            Info = #detail_rep_info{
+                fullname = FullName,
+                update_parents_fn = F,
+                source_pair = maybe_pair({SourceFullName, SourceRepJSON}),
+                parent_pair = maybe_pair({ParentFullName, ParentRepJSON}),
+                rep_info_json = DetailRepInfo},
+            {ok, Info};
+        {error, Reason} ->
+            lager:error("~p looks like a dead repository.~nReason: ~p~n", 
+                        [FullName, Reason]),
+            {error, {gh_error, FullName, Reason}}
         end
     end.
 
 
-download_info_about_lost_child(Con) ->
-    fun({OwnerLogin, RepName} = FullName) ->
-        DetailRepInfo = gh_api:get_repository(Con, OwnerLogin, RepName),
-        ParentRepJSON = proplists:get_value(<<"parent">>, DetailRepInfo),
-        SourceRepJSON = proplists:get_value(<<"source">>, DetailRepInfo),
-        SourceFullName = repository_fullname_json(SourceRepJSON),
-        ParentFullName = repository_fullname_json(ParentRepJSON),
-        %% Function for updating.
-        F = fun(Rec=#gh_repository{}) ->
-                Rec#gh_repository{
-                    source_fullname = SourceFullName,
-                    parent_fullname = ParentFullName}
-            end,
+%% Returns ordeset.
+filter_bad_reps_set(List) ->
+    sets:from_list(filter_bad_reps(List)).
 
-        #detail_rep_info{
-            fullname = FullName,
-            update_parents_fn = F,
-            source_pair = {SourceFullName, SourceRepJSON},
-            parent_pair = {ParentFullName, ParentRepJSON}}
-    end.
+
+filter_bad_reps(List) ->
+    [FullName
+     || {error, {gh_error, FullName, _Reason}} <- List].
 
 
 select_parents_from_details(MoreInfoForLostChildren) ->
-    Pairs =
-    lists:flatmap(fun(#detail_rep_info{source_pair = Source, parent_pair = Parent}) ->
-                    [Source, Parent]
-            end, MoreInfoForLostChildren),
+    F = fun({ok, #detail_rep_info{source_pair = Source, 
+                                  parent_pair = Parent}})
+                when Source =/= undefined, Parent =/= undefined ->
+            [Source, Parent];
+           ({error, _Reason}) ->
+            []
+        end,
+    Pairs = lists:flatmap(F, MoreInfoForLostChildren),
 
     %% Sorted, unique, but can be already downloaded into `SortedRecs@'.
     lists:ukeysort(1, Pairs).
+
+
+select_reps_from_details(MoreInfoForLostChildren) ->
+    F = fun({ok, #detail_rep_info{source_pair = Source, 
+                                  parent_pair = Parent,
+                                  fullname = FullName,
+                                  rep_info_json = DetailRepInfo}}) 
+                when FullName =/= undefined ->
+            MaybeReps = [{FullName, DetailRepInfo}, Source, Parent],
+            [Rep || Rep <- MaybeReps, Rep =/= undefined];
+           ({error, _Reason}) ->
+            []
+        end,
+    Pairs = lists:flatmap(F, MoreInfoForLostChildren),
+
+    %% Sorted, unique, but can be already downloaded into `SortedRecs@'.
+    lists:ukeysort(1, Pairs).
+
+
+child2parent_setter(MoreInfoForLostChildren) ->
+    dict:from_list([{FullName, F}
+                    || {ok, #detail_rep_info{fullname = FullName,
+                                             update_parents_fn = F}}
+                       <- MoreInfoForLostChildren]).
+
+
+maybe_pair({undefined, undefined}) ->
+    undefined;
+maybe_pair({_X, _Y} = XY) ->
+    XY.
