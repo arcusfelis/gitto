@@ -8,7 +8,8 @@
         update_parents_fn,
         source_pair,
         parent_pair,
-        rep_info_json
+        rep_info_json,
+        is_fork
         }).
 
 -record(import_state, {
@@ -104,13 +105,16 @@ analyse_new_json_reps([], _Con, State) ->
     State;
 analyse_new_json_reps(NewSortedPairs, Con, State) ->
     F3 =
-        fun({RepName, X}) ->
-            analyse_dependencies(
-                query_and_fill_forks(Con,
-                    query_and_fill_app_structure(Con, 
-                         fill_gh_repository(#gh_repository{fullname = RepName}, X))))
+        fun() ->
+        Con2 = create_gh_connector(),
+            fun({RepName, X}) ->
+                analyse_dependencies(
+                    query_and_fill_forks(Con2,
+                        query_and_fill_app_structure(Con2, 
+                             fill_gh_repository(#gh_repository{fullname = RepName}, X))))
+            end
         end,
-    SortedRecs0 = plists:map(F3, NewSortedPairs, {processes, 10}),
+    SortedRecs0 = plists:init_map(F3, NewSortedPairs, {processes, 25}),
 
     %% Merge with `State'.
     SortedRecs1 = lists:ukeymerge(#gh_repository.fullname,
@@ -138,7 +142,7 @@ analyse_new_json_reps(NewSortedPairs, Con, State) ->
                            parent_fullname = undefined} <- SortedRecs3],
     lager:info("Parents of ~p are not downloaded yet.", [LostChildren]),
 
-    LostChildrenDetails = plists:map(download_detail_rep_info(Con), 
+    LostChildrenDetails = plists:map(download_detail_rep_info(fun validate_fork/1, Con), 
                                      LostChildren, {processes, 10}),
 
     %% This dict is used for setting `source_fullname' and 
@@ -150,13 +154,14 @@ analyse_new_json_reps(NewSortedPairs, Con, State) ->
 
     %% Few new repositories can be extracted.
     AnotherSortedPairs = select_parents_from_details(LostChildrenDetails), 
-    BadOrdRepList = sets:union(State#import_state.bad_reps_set,
-                               filter_bad_reps_set(LostChildrenDetails)),
+    BadOrdRepList = sets:union([State#import_state.bad_reps_set
+                               ,filter_bad_reps_set(LostChildrenDetails)]),
     State2 = #import_state{sorted_reps = SortedRecs4,
                            parent_dict = ParentDict,
                            source_dict = SourceDict,
                            bad_reps_set = BadOrdRepList},
     analyse_json_reps(AnotherSortedPairs, Con, State2).
+
 
 
 set_parent_fn(ParentDict) ->
@@ -179,9 +184,9 @@ set_source_fn(SourceDict) ->
 
 
 keywords() ->
-%   ["erlang", "library", "application"] ++
-%   [[X] || X <- lists:seq($a, $b) ++ lists:seq($0, $9)].
-    ["etorrent"].
+    ["erlang", "library", "application"] ++
+    [[X] || X <- lists:seq($a, $b) ++ lists:seq($0, $9)].
+%   ["etorrent"].
 
 
 fill_gh_repository(Rec, [{K, V}|PL]) ->
@@ -244,7 +249,9 @@ datetime_to_timestamp(DT) ->
 
 create_gh_connector() ->
     {ok, CacheServer} = riakc_pb_socket:start_link("127.0.0.1", 8087),
-    {ok, Con} = gh_api:new([{cache_server, CacheServer}]),
+    {ok, Con} = gh_api:new([{cache_server, CacheServer},
+                            {user, "freeakk@gmail.com"},
+                            {password, "secret"}]),
     Con.
 
 
@@ -384,16 +391,22 @@ analyse_dependencies(Rec = #gh_repository{rebar_config = RebarConfig}) ->
 
 
 decode_rebar_deps(Deps) ->
+    DepsOnGH =
     [url_to_repository_fullname(RepURL)
-     || {_AppName, _VersionPattern, {git, RepURL, _Rev}} <- Deps].
+     || {_AppName, _VersionPattern, {git, RepURL, _Rev}} <- Deps],
+    [Dep
+     || Dep <- DepsOnGH, Dep =/= undefined].
 
 
 url_to_repository_fullname(URL) ->
     %% This is a second problem.
-    {match, [OwnerLogin, RepName]} =
-          re:run(URL, "(git|https)://github.com/([^/]+)/([^/]+)\\.git", 
-                 [{capture, [2,3], binary}]),
-    {OwnerLogin, RepName}.
+    case re:run(URL, <<"^(git|https|http)://github.com/([^/]+)/(.+?)(\\.git|)$">>, 
+                [{capture, [2,3], binary}]) of
+        {match, [OwnerLogin, RepName]} ->
+            {OwnerLogin, RepName};
+        nomatch ->
+            undefined
+    end.
 
 
 
@@ -403,15 +416,22 @@ url_to_repository_fullname(URL) ->
 url_to_repository_fullname_test_() ->
     [?_assertEqual(url_to_repository_fullname("git://github.com/arcusfelis/plists.git"),
                    {<<"arcusfelis">>, <<"plists">>})
+    ,?_assertEqual(url_to_repository_fullname("git://github.com/arcusfelis/plists"),
+                   {<<"arcusfelis">>, <<"plists">>})
     ].
 
 
 decode_rebar_deps_test_() ->
     Deps = [{plists, ".*", {git, "git://github.com/arcusfelis/plists.git", "HEAD"}}
-           ,{octoerl, ".*", {git, "git://github.com/arcusfelis/octoerl.git", "HEAD"}}],
+           ,{octoerl, ".*", {git, "git://github.com/arcusfelis/octoerl.git", "HEAD"}}
+
+           %% HTTP sucks.
+           ,{gen_server2, ".*", {git, "http://github.com/hyperthunk/gen_server2.git", "master"}}],
     [?_assertEqual(decode_rebar_deps(Deps),
                                      [{<<"arcusfelis">>, <<"plists">>}
-                                     ,{<<"arcusfelis">>, <<"octoerl">>}])].
+                                     ,{<<"arcusfelis">>, <<"octoerl">>}
+                                     ,{<<"hyperthunk">>, <<"gen_server2">>}])].
+                                     
        
 
 -endif.
@@ -442,14 +462,21 @@ update_parent_fn(Child2ParentSetter) ->
             %% Something is wrong!
             error -> 
                 lager:error("FIXME: Cannot select an updater for ~p.",
-                            [Child2ParentSetter]),
+                            [FullName]),
                 Rec
         end;
        (Rec) -> Rec
     end.
 
 
+validate_fork(#detail_rep_info{is_fork = true}) -> ok;
+validate_fork(#detail_rep_info{is_fork = false}) -> {error, not_fork}.
+
+
 download_detail_rep_info(Con) ->
+     download_detail_rep_info(fun(_) -> ok end, Con).
+
+download_detail_rep_info(ValidatorF, Con) ->
     fun({OwnerLogin, RepName} = FullName) ->
         case gh_api:get_repository(Con, OwnerLogin, RepName) of
         {ok, undefined} ->
@@ -457,6 +484,7 @@ download_detail_rep_info(Con) ->
         {ok, DetailRepInfo} ->
             ParentRepJSON = proplists:get_value(<<"parent">>, DetailRepInfo),
             SourceRepJSON = proplists:get_value(<<"source">>, DetailRepInfo),
+            IsFork        = proplists:get_value(<<"fork">>, DetailRepInfo),
             SourceFullName = maybe_repository_fullname_json(SourceRepJSON),
             ParentFullName = maybe_repository_fullname_json(ParentRepJSON),
             %% Function for updating.
@@ -471,8 +499,16 @@ download_detail_rep_info(Con) ->
                 update_parents_fn = F,
                 source_pair = maybe_pair({SourceFullName, SourceRepJSON}),
                 parent_pair = maybe_pair({ParentFullName, ParentRepJSON}),
-                rep_info_json = DetailRepInfo},
-            {ok, Info};
+                rep_info_json = DetailRepInfo,
+                is_fork = IsFork},
+            case ValidatorF(Info) of
+                ok -> {ok, Info};
+                {error, Reason} -> 
+                    lager:error("~p is invalid.~nReason: ~p~n", 
+                                [FullName, Reason]),
+                    {error, {gh_error, FullName, Reason}}
+            end;
+
         {error, Reason} ->
             lager:error("~p looks like a dead repository.~nReason: ~p~n", 
                         [FullName, Reason]),
@@ -491,9 +527,11 @@ filter_bad_reps(List) ->
      || {error, {gh_error, FullName, _Reason}} <- List].
 
 
+%% Fails, if not a fork.
 select_parents_from_details(MoreInfoForLostChildren) ->
     F = fun({ok, #detail_rep_info{source_pair = Source, 
-                                  parent_pair = Parent}})
+                                  parent_pair = Parent,
+                                  is_fork = true}})
                 when Source =/= undefined, Parent =/= undefined ->
             [Source, Parent];
            ({error, _Reason}) ->
