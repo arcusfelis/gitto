@@ -182,6 +182,8 @@
         %% Pairs `{OwnerLogin, RepName}'.
         forks        = [] :: [gitto_type:gh_repository_fullname()],
         dependencies = [] :: [gitto_type:gh_repository_fullname()],
+        %% Source fullnames of dependencies
+        src_dependencies = [] :: [gitto_type:gh_repository_fullname()],
         watchers    :: non_neg_integer(),
         is_fork     :: boolean(),
         %% Size in KB.

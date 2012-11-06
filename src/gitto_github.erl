@@ -50,7 +50,7 @@ run_import() ->
     SortedAddr2RepPairList = lists:foldl(F2, [], SortedAddr2RepPairLists),
 
     State1 = analyse_json_reps(SortedAddr2RepPairList, Con, import_state()),
-    analyse_deps(Con, State1).
+    set_src_dependencies(analyse_deps(Con, State1)).
 
 analyse_deps(Con, State=#import_state{}) ->
     #import_state{sorted_reps = SortedRecs,
@@ -571,3 +571,17 @@ maybe_pair({undefined, undefined}) ->
     undefined;
 maybe_pair({_X, _Y} = XY) ->
     XY.
+
+
+set_src_dependencies(State=#import_state{}) ->
+    #import_state{sorted_reps = SortedRecs,
+                  source_dict = SourceDict} = State,
+    SortedRecs2 =
+      [Rep#gh_repository{src_dependencies = reps_sources(SourceDict, Deps)}
+         || Rep=#gh_repository{dependencies = Deps} <- SortedRecs],
+
+    State#import_state{sorted_reps = SortedRecs2}.
+
+
+reps_sources(SourceDict, Deps) ->
+    [source_fullname(SourceDict, Dep) || Dep <- Deps].

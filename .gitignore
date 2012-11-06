@@ -16,3 +16,4 @@ test/gitto_SUITE_data
 logs/*
 *.beam
 log/*
+priv/reps.bin
