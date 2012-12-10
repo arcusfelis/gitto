@@ -35,9 +35,9 @@ run_import() ->
     F1 =
          fun(KeyWord) ->
             RepsJSON = gh_lib:extract_all(Con, KeyWord, "erlang", 1),
-            lists:ukeysort(1,
-                           [{repository_fullname_json(Rep), Rep} 
-                            || Rep <- RepsJSON])
+            lists:ordkeysort(1,
+                             [{repository_fullname_json(Rep), Rep} 
+                              || Rep <- RepsJSON])
          end,
 
     %% Search for repos by keywords.
@@ -369,6 +369,13 @@ source_fullname(SourceDict, RepName) ->
     parent_fullname(SourceDict, RepName).
 
 
+root_fullname(SourceDict, RepName) ->
+    case source_fullname(SourceDict, RepName) of
+        %% The current repository is a source.
+        undefined -> RepName;
+        SourceName -> SourceName
+    end.
+
 %% ------------------------------------------------------------------
 %% Deps
 %% ------------------------------------------------------------------
@@ -584,4 +591,4 @@ set_src_dependencies(State=#import_state{}) ->
 
 
 reps_sources(SourceDict, Deps) ->
-    [source_fullname(SourceDict, Dep) || Dep <- Deps].
+    [root_fullname(SourceDict, Dep) || Dep <- Deps].
